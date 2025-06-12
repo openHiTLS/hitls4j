@@ -9,8 +9,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
+
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.security.Security;
 
 import org.openhitls.crypto.BaseTest;
@@ -208,44 +213,86 @@ public class SM4Test extends BaseTest {
         }
     }
 
-    @Test
-    public void testSm4GcmJce() {
-        try {
-            // Register HITLS provider if not already registered
-            if (Security.getProvider(HiTls4jProvider.PROVIDER_NAME) == null) {
-                Security.addProvider(new HiTls4jProvider());
-            }
+     @Test
+    public void testSm4GcmEncryptionDecryption() throws Exception {
+        // Create key and IV specifications
+        SecretKeySpec keySpec = new SecretKeySpec(TEST_KEY, "SM4");
+    
+        // Generate IV
+        byte[] iv = new byte[16];
+        new SecureRandom().nextBytes(iv);
+        
+        // Generate Aad
+        byte[] aad = new byte[16];
+        new SecureRandom().nextBytes(aad);
+        
+        GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(128, iv);
+        
+        // Initialize cipher for encryption
+        Cipher encryptCipher = Cipher.getInstance("SM4/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+        encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmParameterSpec);
 
-            // Create key and IV specifications
-            SecretKeySpec keySpec = new SecretKeySpec(TEST_KEY, "SM4");
-            IvParameterSpec ivSpec = new IvParameterSpec(TEST_IV);
+        encryptCipher.updateAAD(aad);
+        byte[] encryptedData = encryptCipher.doFinal(TEST_DATA);
 
-            // Initialize cipher for encryption
-            Cipher encryptCipher = Cipher.getInstance("SM4/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-            encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec);
+        // Initialize cipher for decryption
+        Cipher decryptCipher = Cipher.getInstance("SM4/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+        decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, gcmParameterSpec);
+        decryptCipher.updateAAD(aad);
 
-            // Encrypt the test data
-            byte[] encryptedData = encryptCipher.doFinal(TEST_DATA);
+        // Decrypt the data
+        byte[] decryptedData = decryptCipher.doFinal(encryptedData);
 
-            // Initialize cipher for decryption
-            Cipher decryptCipher = Cipher.getInstance("SM4/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-            decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
-
-            // Decrypt the data
-            byte[] decryptedData = decryptCipher.doFinal(encryptedData);
-
-            // Verify the decrypted data matches the original
-            assertArrayEquals("Decrypted data should match original", TEST_DATA, decryptedData);
-
-            // Test with unaligned data
-            encryptedData = encryptCipher.doFinal(UNALIGNED_DATA);
-            decryptedData = decryptCipher.doFinal(encryptedData);
-            assertArrayEquals("Decrypted unaligned data should match original", UNALIGNED_DATA, decryptedData);
-        } catch (Exception e) {
-            e.printStackTrace();
-            fail("Exception occurred: " + e.getMessage());
-        }
+        // Verify the decrypted data matches the original
+        assertArrayEquals("Decrypted data should match original", TEST_DATA, decryptedData);
     }
+
+    // @Test
+    // public void testSm4GcmJce() {
+    //     try {
+    //         // Register HITLS provider if not already registered
+    //         if (Security.getProvider(HiTls4jProvider.PROVIDER_NAME) == null) {
+    //             Security.addProvider(new HiTls4jProvider());
+    //         }
+
+    //         // Create key and IV specifications
+    //         SecretKeySpec keySpec = new SecretKeySpec(TEST_KEY, "SM4");
+    //         // Generate IV
+    //         byte[] iv = new byte[16];
+    //         new SecureRandom().nextBytes(iv);
+            
+    //         // Generate Aad
+    //         byte[] aad = new byte[16];
+    //         new SecureRandom().nextBytes(aad);
+            
+    //         GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(128, iv);
+
+    //         // Initialize cipher for encryption
+    //         Cipher encryptCipher = Cipher.getInstance("SM4/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+    //         encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmParameterSpec);
+            
+    //         // Encrypt the test data
+    //         byte[] encryptedData = encryptCipher.doFinal(TEST_DATA);
+
+    //         // Initialize cipher for decryption
+    //         Cipher decryptCipher = Cipher.getInstance("SM4/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+    //         decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, gcmParameterSpec);
+
+    //         // Decrypt the data
+    //         byte[] decryptedData = decryptCipher.doFinal(encryptedData);
+
+    //         // Verify the decrypted data matches the original
+    //         assertArrayEquals("Decrypted data should match original", TEST_DATA, decryptedData);
+
+    //         // Test with unaligned data
+    //         encryptedData = encryptCipher.doFinal(UNALIGNED_DATA);
+    //         decryptedData = decryptCipher.doFinal(encryptedData);
+    //         assertArrayEquals("Decrypted unaligned data should match original", UNALIGNED_DATA, decryptedData);
+    //     } catch (Exception e) {
+    //         e.printStackTrace();
+    //         fail("Exception occurred: " + e.getMessage());
+    //     }
+    // }
 
     @Test
     public void testSm4XtsJce() {

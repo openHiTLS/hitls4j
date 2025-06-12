@@ -33,6 +33,11 @@ public class CryptoNative {
                                              byte[] output, int outputOffset, int[] outLen);
     public static native byte[] symmetricCipherFinal(long contextPtr);
     public static native void symmetricCipherFree(long contextPtr);
+    
+    // GCM specific methods
+    public static native void symmetricCipherSetAAD(long contextPtr, byte[] aad, int offset, int len);
+    public static native void symmetricCipherSetTagLen(long contextPtr, int tagLen);
+    public static native void symmetricCipherGetTag(long contextPtr, byte[] tag, int tagLen);
 
     // DSA native methods
     public static native long dsaCreateContext();

@@ -178,6 +178,27 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCiph
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    symmetricCipherSetAAD
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherSetAAD
+  (JNIEnv *, jclass, jlong, jbyteArray, jint, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    symmetricCipherSetTagLen
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherSetTagLen
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    symmetricCipherGetTag
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherGetTag
+  (JNIEnv *, jclass, jlong, jbyteArray, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    dsaCreateContext
  */
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaCreateContext
