@@ -34,6 +34,11 @@ public final class HiTls4jProvider extends Provider {
         }
     }
 
+    static {
+        // Load native libraries
+        NativeLoader.load();
+    }
+
     public HiTls4jProvider() {
         super(PROVIDER_NAME, VERSION, INFO);
         

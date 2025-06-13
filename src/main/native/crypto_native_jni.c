@@ -53,10 +53,52 @@ static void throwExceptionWithError(JNIEnv *env, const char *exceptionClass, con
     (*env)->DeleteLocalRef(env, cls);
 }
 
+// Static initialization flag
+static volatile int32_t g_initialized = 0;
+static pthread_mutex_t g_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static void bslInit() {
     BSL_ERR_Init();
     BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
     BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
+}
+
+static void randInit() {
+    CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
+}
+
+// Initialize BSL and random number generator
+static void initializeCrypto() {
+    if (g_initialized) return;
+    
+    pthread_mutex_lock(&g_init_mutex);
+    if (!g_initialized) {
+        // Initialize BSL
+        static uint32_t bslOnceControl = 0;
+        BSL_SAL_ThreadRunOnce(&bslOnceControl, bslInit);
+        
+        // Initialize random number generator
+        static uint32_t randOnceControl = 0;
+        BSL_SAL_ThreadRunOnce(&randOnceControl, randInit);
+        
+        // Test random number generation
+        uint8_t testBuf[32];
+        int ret = CRYPT_EAL_Randbytes(testBuf, sizeof(testBuf));
+        if (ret != CRYPT_SUCCESS) {
+            // Log error but don't throw exception here
+            fprintf(stderr, "Warning: Failed to initialize random number generator: %d\n", ret);
+        }
+        
+        g_initialized = 1;
+    }
+    pthread_mutex_unlock(&g_init_mutex);
+}
+
+// JNI_OnLoad - called when the native library is loaded
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    // Initialize crypto when the library is loaded
+    initializeCrypto();
+    return JNI_VERSION_1_8;
 }
 
 static void initBSL() {
@@ -66,8 +108,6 @@ static void initBSL() {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestInit
   (JNIEnv *env, jclass cls, jstring jalgorithm) {
-    initBSL();
-
     const char *algorithm = (*env)->GetStringUTFChars(env, jalgorithm, NULL);
     if (algorithm == NULL) {
         throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Failed to get algorithm string");
@@ -205,8 +245,6 @@ static int getHmacAlgorithmId(const char *algorithm) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacInit
   (JNIEnv *env, jobject obj, jstring jalgorithm, jbyteArray key) {
-    initBSL();
-
     // Convert Java string to C string
     const char *algorithm = (*env)->GetStringUTFChars(env, jalgorithm, NULL);
     if (algorithm == NULL) {
@@ -360,21 +398,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacFree
     }
 }
 
-static void ecdsaRandInit() {
-    CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
-}
-
-static void ecdsaInitRand(JNIEnv *env) {
-    static uint32_t onceControl = 0;
-    BSL_SAL_ThreadRunOnce(&onceControl, ecdsaRandInit);
-    
-    uint8_t testBuf[32];
-    int ret = CRYPT_EAL_Randbytes(testBuf, sizeof(testBuf));
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate random number", ret);
-    }
-}
-
 // Update curve IDs to match OpenHiTLS
 static int getEcCurveId(const char *curveName) {
     if (strcmp(curveName, "sm2p256v1") == 0) {
@@ -415,9 +438,6 @@ static int getMdId(int hashAlg) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaCreateContext
   (JNIEnv *env, jclass cls, jstring jcurveName) {
-    initBSL();
-    ecdsaInitRand(env);
-
     const char *curveName = (*env)->GetStringUTFChars(env, jcurveName, NULL);
     int curveId = getEcCurveId(curveName);
     (*env)->ReleaseStringUTFChars(env, jcurveName, curveName);
@@ -910,8 +930,6 @@ static CRYPT_CIPHER_AlgId getAesModeId(JNIEnv *env, jstring mode, jint keySize) 
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherInit
   (JNIEnv *env, jclass cls, jstring algorithm, jstring cipherMode, jbyteArray key, jbyteArray iv, jint mode) {
-    initBSL();
-
     CRYPT_CIPHER_AlgId algId = 0;
     const char* algoStr = (*env)->GetStringUTFChars(env, algorithm, NULL);
     if (strcmp(algoStr, "AES") == 0) {
@@ -1100,9 +1118,6 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetr
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaCreateContext
   (JNIEnv *env, jclass cls) {
-    initBSL();
-    ecdsaInitRand(env);
-
     CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_DSA);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create DSA context");
@@ -1373,8 +1388,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaSetKeys
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaCreateContext
   (JNIEnv *env, jclass cls) {
-    initBSL();
-
     CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_RSA);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create RSA context");

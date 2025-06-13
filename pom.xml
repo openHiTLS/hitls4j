@@ -29,121 +29,83 @@
         <openhitls.root>/root/openhitls</openhitls.root>
     </properties>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
-                <configuration>
-                    <source>17</source>
-                    <target>17</target>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.0.0-M5</version>
-                <configuration>
-                    <argLine>-Djava.library.path=${openhitls.root}/lib:${project.build.directory}/native</argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>compile-jni</id>
-                        <phase>compile</phase>
-                        <configuration>
-                            <target>
-                                <mkdir dir="${project.build.directory}/native"/>
-                                <!-- Compile JNI source files -->
-                                <exec executable="gcc" failonerror="true">
-                                    <arg value="-c"/>
-                                    <arg value="-fPIC"/>
-                                    <arg value="-Wall"/>
-                                    <arg value="-I${env.JAVA_HOME}/include"/>
-                                    <arg value="-I${env.JAVA_HOME}/include/linux"/>
-                                    <arg value="-I${basedir}/src/main/native"/>
-                                    <arg value="-I${openhitls.root}/include"/>
-                                    <arg value="-I${openhitls.root}/include/bsl"/>
-                                    <arg value="-I${openhitls.root}/include/crypto"/>
-                                    <arg value="-I${openhitls.root}/build/include"/>
-                                    <arg value="${basedir}/src/main/native/crypto_native_jni.c"/>
-                                    <arg value="-o"/>
-                                    <arg value="${project.build.directory}/native/crypto_native_jni.o"/>
-                                </exec>
-                                <!-- Link directly to shared library -->
-                                <exec executable="gcc" failonerror="true">
-                                    <arg value="-shared"/>
-                                    <arg value="-o"/>
-                                    <arg value="${project.build.directory}/native/libhitls_crypto_jni.so"/>
-                                    <arg value="${project.build.directory}/native/crypto_native_jni.o"/>
-                                    <arg value="-L${openhitls.root}/build"/>
-                                    <arg value="-Wl,--whole-archive"/>
-                                    <arg value="${openhitls.root}/build/libboundscheck.a"/>
-                                    <arg value="${openhitls.root}/build/libhitls_crypto.a"/>
-                                    <arg value="${openhitls.root}/build/libhitls_bsl.a"/>
-                                    <arg value="-Wl,--no-whole-archive"/>
-                                    <arg value="-Wl,-z,noexecstack"/>
-                                    <arg value="-Wl,--no-undefined"/>
-                                    <arg value="-Wl,--start-group"/>
-                                    <arg value="-ldl"/>
-                                    <arg value="-lc"/>
-                                    <arg value="-lpthread"/>
-                                    <arg value="-lrt"/>
-                                    <arg value="-lm"/>
-                                    <arg value="-Wl,--end-group"/>
-                                </exec>
-                            </target>
-                        </configuration>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- Package native libraries into JAR -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>
-            <!-- Copy native libraries to JAR -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <version>3.3.1</version>
-                <executions>
-                    <execution>
-                        <id>copy-native-libs</id>
-                        <phase>prepare-package</phase>
-                        <goals>
-                            <goal>copy-resources</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/classes/native/libs</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${project.build.directory}/native</directory>
-                                    <includes>
-                                        <include>libhitls_crypto_jni.so</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
+<build>
+    <plugins>
+        <!-- Compile and link JNI library -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+                <execution>
+                    <id>compile-jni</id>
+                    <phase>compile</phase>
+                    <configuration>
+                        <target>
+                            <mkdir dir="${project.build.directory}/native"/>
+                            <!-- Compile JNI code -->
+                            <exec executable="gcc" failonerror="true">
+                                <arg value="-c"/>
+                                <arg value="-fPIC"/>
+                                <arg value="-Wall"/>
+                                <arg value="-I${env.JAVA_HOME}/include"/>
+                                <arg value="-I${env.JAVA_HOME}/include/linux"/>
+                                <arg value="-I${basedir}/src/main/native"/>
+                                <arg value="-I${openhitls.root}/include"/>
+                                <arg value="-I${openhitls.root}/include/bsl"/>
+                                <arg value="-I${openhitls.root}/include/crypto"/>
+                                <arg value="-I${openhitls.root}/build/include"/>
+                                <arg value="${basedir}/src/main/native/crypto_native_jni.c"/>
+                                <arg value="-o"/>
+                                <arg value="${project.build.directory}/native/crypto_native_jni.o"/>
+                            </exec>
+                            <!-- Link with dynamic OpenHiTLS libraries -->
+                            <exec executable="gcc" failonerror="true">
+                                <arg value="-shared"/>
+                                <arg value="-o"/>
+                                <arg value="${project.build.directory}/native/libhitls_crypto_jni.so"/>
+                                <arg value="${project.build.directory}/native/crypto_native_jni.o"/>
+                                <arg value="-L${openhitls.root}/build"/>
+                                <arg value="-lhitls_crypto"/>
+                                <arg value="-lhitls_bsl"/>
+                                <arg value="-lboundscheck"/>
+                                <arg value="-Wl,-z,noexecstack"/>
+                            </exec>
+                        </target>
+                    </configuration>
+                    <goals>
+                        <goal>run</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+
+        <!-- Package JNI library into JAR -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-resources-plugin</artifactId>
+            <version>3.3.0</version>
+            <executions>
+                <execution>
+                    <id>copy-native-libs</id>
+                    <phase>process-classes</phase>
+                    <goals>
+                        <goal>copy-resources</goal>
+                    </goals>
+                    <configuration>
+                        <outputDirectory>${project.build.outputDirectory}/META-INF/native/linux-x86_64</outputDirectory>
+                        <resources>
+                            <resource>
+                                <directory>${project.build.directory}/native</directory>
+                                <includes>
+                                    <include>*.so</include>
+                                </includes>
+                            </resource>
+                        </resources>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
 </project>
