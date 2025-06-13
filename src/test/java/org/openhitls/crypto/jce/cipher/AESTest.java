@@ -9,6 +9,7 @@ import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -23,7 +24,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class AESTest extends BaseTest {
-    private static final String[] MODES = {"ECB", "CBC", "CTR", "GCM"};
+    private static final String[] MODES = {"ECB", "CBC", "CTR"};
     private static final int[] KEY_SIZES = {128, 192, 256};
 
     @BeforeClass
@@ -60,7 +61,7 @@ public class AESTest extends BaseTest {
                 } else {
                     cipher.init(Cipher.ENCRYPT_MODE, key);
                 }
-
+                
                 // Encrypt
                 byte[] encrypted = cipher.doFinal(paddedInput);
 
@@ -98,6 +99,48 @@ public class AESTest extends BaseTest {
                                     paddedInput, decrypted2);
                 }
             }
+        }
+    }
+
+    @Test
+    public void testAesGcmEncryptionDecryption() throws Exception {
+        // Create key and IV specifications
+        // Generate key
+        for (int keySize : KEY_SIZES) {
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(keySize);
+            SecretKey key = keyGen.generateKey();
+        
+            // Generate IV
+            byte[] iv = new byte[16];
+            new SecureRandom().nextBytes(iv);
+            
+            // Generate Aad
+            byte[] aad = new byte[16];
+            new SecureRandom().nextBytes(aad);
+            
+            GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(128, iv);
+            
+            // Initialize cipher for encryption
+            Cipher encryptCipher = Cipher.getInstance("AES/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+            encryptCipher.init(Cipher.ENCRYPT_MODE, key, gcmParameterSpec);
+
+            // Encrypt the test data
+            String testData = "Hello, AES Test!";
+            byte[] input = testData.getBytes(StandardCharsets.UTF_8);
+            encryptCipher.updateAAD(aad);
+            byte[] encryptedData = encryptCipher.doFinal(input);
+
+            // Initialize cipher for decryption
+            Cipher decryptCipher = Cipher.getInstance("AES/GCM/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+            decryptCipher.init(Cipher.DECRYPT_MODE, key, gcmParameterSpec);
+            decryptCipher.updateAAD(aad);
+
+            // Decrypt the data
+            byte[] decryptedData = decryptCipher.doFinal(encryptedData);
+
+            // Verify the decrypted data matches the original
+            assertArrayEquals("Decrypted data should match original", input, decryptedData);
         }
     }
 

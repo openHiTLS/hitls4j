@@ -53,10 +53,52 @@ static void throwExceptionWithError(JNIEnv *env, const char *exceptionClass, con
     (*env)->DeleteLocalRef(env, cls);
 }
 
+// Static initialization flag
+static volatile int32_t g_initialized = 0;
+static pthread_mutex_t g_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static void bslInit() {
     BSL_ERR_Init();
-    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC_CB_FUNC, StdMalloc);
-    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE_CB_FUNC, free);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
+}
+
+static void randInit() {
+    CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
+}
+
+// Initialize BSL and random number generator
+static void initializeCrypto() {
+    if (g_initialized) return;
+    
+    pthread_mutex_lock(&g_init_mutex);
+    if (!g_initialized) {
+        // Initialize BSL
+        static uint32_t bslOnceControl = 0;
+        BSL_SAL_ThreadRunOnce(&bslOnceControl, bslInit);
+        
+        // Initialize random number generator
+        static uint32_t randOnceControl = 0;
+        BSL_SAL_ThreadRunOnce(&randOnceControl, randInit);
+        
+        // Test random number generation
+        uint8_t testBuf[32];
+        int ret = CRYPT_EAL_Randbytes(testBuf, sizeof(testBuf));
+        if (ret != CRYPT_SUCCESS) {
+            // Log error but don't throw exception here
+            fprintf(stderr, "Warning: Failed to initialize random number generator: %d\n", ret);
+        }
+        
+        g_initialized = 1;
+    }
+    pthread_mutex_unlock(&g_init_mutex);
+}
+
+// JNI_OnLoad - called when the native library is loaded
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    // Initialize crypto when the library is loaded
+    initializeCrypto();
+    return JNI_VERSION_1_8;
 }
 
 static void initBSL() {
@@ -66,8 +108,6 @@ static void initBSL() {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestInit
   (JNIEnv *env, jclass cls, jstring jalgorithm) {
-    initBSL();
-
     const char *algorithm = (*env)->GetStringUTFChars(env, jalgorithm, NULL);
     if (algorithm == NULL) {
         throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Failed to get algorithm string");
@@ -205,8 +245,6 @@ static int getHmacAlgorithmId(const char *algorithm) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacInit
   (JNIEnv *env, jobject obj, jstring jalgorithm, jbyteArray key) {
-    initBSL();
-
     // Convert Java string to C string
     const char *algorithm = (*env)->GetStringUTFChars(env, jalgorithm, NULL);
     if (algorithm == NULL) {
@@ -360,21 +398,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacFree
     }
 }
 
-static void ecdsaRandInit() {
-    CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
-}
-
-static void ecdsaInitRand(JNIEnv *env) {
-    static uint32_t onceControl = 0;
-    BSL_SAL_ThreadRunOnce(&onceControl, ecdsaRandInit);
-    
-    uint8_t testBuf[32];
-    int ret = CRYPT_EAL_Randbytes(testBuf, sizeof(testBuf));
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate random number", ret);
-    }
-}
-
 // Update curve IDs to match OpenHiTLS
 static int getEcCurveId(const char *curveName) {
     if (strcmp(curveName, "sm2p256v1") == 0) {
@@ -415,9 +438,6 @@ static int getMdId(int hashAlg) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaCreateContext
   (JNIEnv *env, jclass cls, jstring jcurveName) {
-    initBSL();
-    ecdsaInitRand(env);
-
     const char *curveName = (*env)->GetStringUTFChars(env, jcurveName, NULL);
     int curveId = getEcCurveId(curveName);
     (*env)->ReleaseStringUTFChars(env, jcurveName, curveName);
@@ -910,8 +930,6 @@ static CRYPT_CIPHER_AlgId getAesModeId(JNIEnv *env, jstring mode, jint keySize) 
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherInit
   (JNIEnv *env, jclass cls, jstring algorithm, jstring cipherMode, jbyteArray key, jbyteArray iv, jint mode) {
-    initBSL();
-
     CRYPT_CIPHER_AlgId algId = 0;
     const char* algoStr = (*env)->GetStringUTFChars(env, algorithm, NULL);
     if (strcmp(algoStr, "AES") == 0) {
@@ -1100,9 +1118,6 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetr
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaCreateContext
   (JNIEnv *env, jclass cls) {
-    initBSL();
-    ecdsaInitRand(env);
-
     CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_DSA);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create DSA context");
@@ -1373,8 +1388,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaSetKeys
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaCreateContext
   (JNIEnv *env, jclass cls) {
-    initBSL();
-
     CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_RSA);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create RSA context");
@@ -1808,6 +1821,108 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerify
     return JNI_TRUE;
 }
 
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherSetAAD
+  (JNIEnv *env, jclass cls, jlong contextPtr, jbyteArray aad, jint offset, jint len)
+{
+    if (contextPtr == 0) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid context pointer");
+        return;
+    }
+
+    if (aad == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "AAD data cannot be null");
+        return;
+    }
+
+    if (len <= 0) {
+        return; // Nothing to do for zero or negative length
+    }
+
+    jbyte* aadBytes = (*env)->GetByteArrayElements(env, aad, NULL);
+    if (aadBytes == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get AAD bytes");
+        return;
+    }
+    
+    // Cast to cipher context and set AAD using CRYPT_CTRL_SET_AAD
+    CRYPT_EAL_CipherCtx* ctx = (CRYPT_EAL_CipherCtx*)contextPtr;
+    int ret = CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, 
+                                 (void*)(aadBytes + offset), 
+                                 (uint32_t)len);
+    
+    (*env)->ReleaseByteArrayElements(env, aad, aadBytes, JNI_ABORT);
+    
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set AAD", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherSetTagLen
+  (JNIEnv *env, jclass cls, jlong contextPtr, jint tagLen)
+{
+    if (contextPtr == 0) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid context pointer");
+        return;
+    }
+
+    if (tagLen < 4 || tagLen > 16) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Tag length must be between 4 and 16 bytes");
+        return;
+    }
+
+    uint32_t len = (uint32_t)tagLen;
+    int ret = CRYPT_EAL_CipherCtrl((CRYPT_EAL_CipherCtx*)contextPtr, 
+                                 CRYPT_CTRL_SET_TAGLEN, 
+                                 &len, 
+                                 sizeof(uint32_t));
+    
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set tag length", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCipherGetTag
+  (JNIEnv *env, jclass cls, jlong contextPtr, jbyteArray tag, jint tagLen)
+{
+    if (contextPtr == 0) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid context pointer");
+        return;
+    }
+
+    if (tag == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Tag buffer cannot be null");
+        return;
+    }
+
+    jsize tagArrayLen = (*env)->GetArrayLength(env, tag);
+    if (tagLen < 4 || tagLen > 16 || tagLen > tagArrayLen) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid tag length");
+        return;
+    }
+
+    jbyte* tagBuf = (*env)->GetByteArrayElements(env, tag, NULL);
+    if (tagBuf == NULL) {
+        return; // Exception already thrown
+    }
+    
+    // Use cipher context and control command to get the tag
+    CRYPT_EAL_CipherCtx* ctx = (CRYPT_EAL_CipherCtx*)contextPtr;
+    
+    // Call with tag length directly as the last parameter
+    int ret = CRYPT_EAL_CipherCtrl(ctx, 
+                                 CRYPT_CTRL_GET_TAG, 
+                                 (void*)tagBuf, 
+                                 (uint32_t)tagLen);  // Pass tag length directly, not a pointer
+    
+    if (ret != CRYPT_SUCCESS) {
+        (*env)->ReleaseByteArrayElements(env, tag, tagBuf, JNI_ABORT);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get tag", ret);
+        return;
+    }
+    
+    (*env)->ReleaseByteArrayElements(env, tag, tagBuf, 0);
+}
+
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetPadding
   (JNIEnv *env, jclass cls, jlong nativeRef, jint paddingMode) {
     if (nativeRef == 0) {
@@ -1833,89 +1948,93 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetPadding
     }
 }
 
-JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncrypt
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data) {
-    CRYPT_EAL_PkeyCtx *ctx = (CRYPT_EAL_PkeyCtx *)nativeRef;
-    if (ctx == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");
-        return NULL;
-    }
-    jbyte *dataBytes = (*env)->GetByteArrayElements(env, data, NULL);
-    if (dataBytes == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get data bytes");
-        return NULL;
-    }
-    jsize dataLen = (*env)->GetArrayLength(env, data);
-    // Set PKCS#1 v1.5 padding for RSA encryption
-    int32_t pkcsv15 = CRYPT_MD_SHA256;
-    int ret = CRYPT_EAL_PkeyCtrl(ctx, CRYPT_CTRL_SET_RSA_RSAES_PKCSV15, &pkcsv15, sizeof(pkcsv15));
-    if (ret != CRYPT_SUCCESS) {
-        (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA padding", ret);
-        return NULL;
-    }
-    uint32_t outLen = CRYPT_EAL_PkeyGetKeyLen(ctx);
-    uint8_t *outBuf = malloc(outLen);
-    if (outBuf == NULL) {
-        (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for encrypted data");
-        return NULL;
-    }
-    ret = CRYPT_EAL_PkeyEncrypt(ctx, (uint8_t *)dataBytes, dataLen, outBuf, &outLen);
-    (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);
-    if (ret != CRYPT_SUCCESS) {
-        free(outBuf);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encrypt data", ret);
-        return NULL;
-    }
-    jbyteArray result = (*env)->NewByteArray(env, outLen);
-    if (result != NULL) {
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncrypt	
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data) {	
+    CRYPT_EAL_PkeyCtx *ctx = (CRYPT_EAL_PkeyCtx *)nativeRef;	
+    if (ctx == NULL) {	
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");	
+        return NULL;	
+    }	
+    jbyte *dataBytes = (*env)->GetByteArrayElements(env, data, NULL);	
+    if (dataBytes == NULL) {	
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get data bytes");	
+        return NULL;	
+    }	
+    jsize dataLen = (*env)->GetArrayLength(env, data);	
+    // Set PKCS#1 v1.5 padding for RSA encryption	
+    int32_t pkcsv15 = CRYPT_MD_SHA256;	
+    int ret = CRYPT_EAL_PkeyCtrl(ctx, CRYPT_CTRL_SET_RSA_RSAES_PKCSV15, &pkcsv15, sizeof(pkcsv15));	
+    if (ret != CRYPT_SUCCESS) {	
+        (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);	
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA padding", ret);	
+        return NULL;	
+    }	
+    uint32_t outLen = CRYPT_EAL_PkeyGetKeyLen(ctx);	
+    uint8_t *outBuf = malloc(outLen);	
+    if (outBuf == NULL) {	
+        (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);	
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for encrypted data");	
+        return NULL;	
+    }	
+    ret = CRYPT_EAL_PkeyEncrypt(ctx, (uint8_t *)dataBytes, dataLen, outBuf, &outLen);	
+    (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);	
+    if (ret != CRYPT_SUCCESS) {	
+        free(outBuf);	
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encrypt data", ret);	
+        return NULL;	
+    }	
+    jbyteArray result = (*env)->NewByteArray(env, outLen);	
+    if (result != NULL) {	
         (*env)->SetByteArrayRegion(env, result, 0, outLen, (jbyte *)outBuf);
     }
     free(outBuf);
     return result;
-}
-JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecrypt
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray encryptedData) {
-    CRYPT_EAL_PkeyCtx *ctx = (CRYPT_EAL_PkeyCtx *)nativeRef;
-    if (ctx == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");
-        return NULL;
-    }
-    jbyte *dataBytes = (*env)->GetByteArrayElements(env, encryptedData, NULL);
-    if (dataBytes == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get encrypted data bytes");
-        return NULL;
-    }
-    jsize dataLen = (*env)->GetArrayLength(env, encryptedData);
-    // Set PKCS#1 v1.5 padding for RSA decryption
-    int32_t pkcsv15 = CRYPT_MD_SHA256;
-    int ret = CRYPT_EAL_PkeyCtrl(ctx, CRYPT_CTRL_SET_RSA_RSAES_PKCSV15, &pkcsv15, sizeof(pkcsv15));
-    if (ret != CRYPT_SUCCESS) {
-        (*env)->ReleaseByteArrayElements(env, encryptedData, dataBytes, JNI_ABORT);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA padding", ret);
-        return NULL;
-    }
-    uint32_t outLen = CRYPT_EAL_PkeyGetKeyLen(ctx);
-    uint8_t *outBuf = malloc(outLen);
-    if (outBuf == NULL) {
-        (*env)->ReleaseByteArrayElements(env, encryptedData, dataBytes, JNI_ABORT);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for decrypted data");
-        return NULL;
-    }
-    ret = CRYPT_EAL_PkeyDecrypt(ctx, (uint8_t *)dataBytes, dataLen, outBuf, &outLen);
-    (*env)->ReleaseByteArrayElements(env, encryptedData, dataBytes, JNI_ABORT);
-    if (ret != CRYPT_SUCCESS) {
-        free(outBuf);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to decrypt data", ret);
-        return NULL;
-    }
-    jbyteArray result = (*env)->NewByteArray(env, outLen);
-    if (result != NULL) {
-        (*env)->SetByteArrayRegion(env, result, 0, outLen, (jbyte *)outBuf);
-    }
-    free(outBuf);
-    return result;
+}	
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecrypt	
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray encryptedData) {	
+    CRYPT_EAL_PkeyCtx *ctx = (CRYPT_EAL_PkeyCtx *)nativeRef;	
+    if (ctx == NULL) {	
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");	
+        return NULL;	
+
+    }	
+    jbyte *dataBytes = (*env)->GetByteArrayElements(env, encryptedData, NULL);	
+
+
+
+    if (dataBytes == NULL) {	
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get encrypted data bytes");	
+        return NULL;	
+    }	
+    jsize dataLen = (*env)->GetArrayLength(env, encryptedData);	
+    // Set PKCS#1 v1.5 padding for RSA decryption	
+    int32_t pkcsv15 = CRYPT_MD_SHA256;	
+    int ret = CRYPT_EAL_PkeyCtrl(ctx, CRYPT_CTRL_SET_RSA_RSAES_PKCSV15, &pkcsv15, sizeof(pkcsv15));	
+    if (ret != CRYPT_SUCCESS) {	
+        (*env)->ReleaseByteArrayElements(env, encryptedData, dataBytes, JNI_ABORT);	
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA padding", ret);	
+        return NULL;	
+    }	
+    uint32_t outLen = CRYPT_EAL_PkeyGetKeyLen(ctx);	
+    uint8_t *outBuf = malloc(outLen);	
+    if (outBuf == NULL) {	
+        (*env)->ReleaseByteArrayElements(env, encryptedData, dataBytes, JNI_ABORT);	
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for decrypted data");	
+        return NULL;	
+    }	
+    ret = CRYPT_EAL_PkeyDecrypt(ctx, (uint8_t *)dataBytes, dataLen, outBuf, &outLen);	
+    (*env)->ReleaseByteArrayElements(env, encryptedData, dataBytes, JNI_ABORT);	
+    if (ret != CRYPT_SUCCESS) {	
+        free(outBuf);	
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to decrypt data", ret);	
+        return NULL;	
+    }	
+    jbyteArray result = (*env)->NewByteArray(env, outLen);	
+    if (result != NULL) {	
+        (*env)->SetByteArrayRegion(env, result, 0, outLen, (jbyte *)outBuf);	
+    }	
+    free(outBuf);	
+    return result;	
 }
 
 JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSignPSS

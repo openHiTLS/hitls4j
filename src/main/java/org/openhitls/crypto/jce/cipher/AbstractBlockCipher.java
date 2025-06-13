@@ -4,7 +4,9 @@ import org.openhitls.crypto.core.symmetric.SymmetricCipherImpl;
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.spec.GCMParameterSpec;
 import java.security.*;
+import java.nio.ByteBuffer;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
 
@@ -127,35 +129,54 @@ public abstract class AbstractBlockCipher extends CipherSpi {
         byte[] keyBytes = key.getEncoded();
         validateKeySize(keyBytes);
         this.key = keyBytes;
-
-        if (params != null) {
-            if (!(params instanceof IvParameterSpec)) {
-                throw new InvalidAlgorithmParameterException("Parameters must be an IvParameterSpec");
-            }
-            this.iv = ((IvParameterSpec)params).getIV();
-            if (this.iv.length != 16) {
-                throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
-            }
-        } else {
-            this.iv = null;
-        }
-
-        // Check if we need an IV but don't have one
-        if (requiresIV && this.iv == null) {
-            throw new InvalidAlgorithmParameterException(mode + " mode requires an IV");
-        }
-
-        // Check if we have an IV but don't need one
-        if (!requiresIV && this.iv != null) {
-            throw new InvalidAlgorithmParameterException(mode + " mode cannot use IV");
-        }
-
         this.opmode = opmode;
         try {
             int sm4Mode = (opmode == Cipher.ENCRYPT_MODE) ? SymmetricCipherImpl.MODE_ENCRYPT : SymmetricCipherImpl.MODE_DECRYPT;
             int paddingMode = getPaddingMode();
-            // Initialize the SM4 cipher with appropriate padding
+
+            if (params == null) {
+                this.iv = null;
+            } else if (params instanceof IvParameterSpec) {
+                this.iv = ((IvParameterSpec)params).getIV();
+                if (this.iv.length != 16) {
+                    throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
+                }
+            } else if (params instanceof GCMParameterSpec) {
+                GCMParameterSpec gcmParams = (GCMParameterSpec) params;
+                this.iv = gcmParams.getIV();
+                if (this.iv.length != 16) {
+                    throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
+                }
+                
+                // For GCM mode, set the tag length in bits (converted to bytes)
+                int tagLengthBits = gcmParams.getTLen();
+                if (tagLengthBits < 32 || tagLengthBits > 128 || (tagLengthBits % 8) != 0) {
+                    throw new InvalidAlgorithmParameterException("Tag length must be 32-128 bits and a multiple of 8");
+                }
+            } else {
+                throw new InvalidAlgorithmParameterException("Unsupported parameter type: " + params.getClass().getName());
+            }
+    
+            // Check if we need an IV but don't have one
+            if (requiresIV && this.iv == null) {
+                throw new InvalidAlgorithmParameterException(mode + " mode requires an IV");
+            }
+
+            // Check if we have an IV but don't need one
+            if (!requiresIV && this.iv != null) {
+                throw new InvalidAlgorithmParameterException(mode + " mode cannot use IV");
+            }
+            
+            // Initialize the cipher
             symmetricCipher = new SymmetricCipherImpl(getAlgorithmName(), mode, this.key, this.iv, sm4Mode, paddingMode);
+            
+            // For GCM mode, set the tag length
+            if ("GCM".equals(mode) && params instanceof GCMParameterSpec) {
+                int tagLengthBits = ((GCMParameterSpec) params).getTLen();
+                int tagLengthBytes = tagLengthBits / 8;
+                symmetricCipher.setTagLength(tagLengthBytes);
+            }
+
             initialized = true;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize cipher: " + e.getMessage());
@@ -216,7 +237,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
 
         try {
             // For stream cipher modes, we need to reinitialize for each operation
-            boolean isStreamMode = (mode.equals("CTR") || mode.equals("CFB") || mode.equals("OFB") || mode.equals("GCM"));
+            boolean isStreamMode = (mode.equals("CTR") || mode.equals("CFB") || mode.equals("OFB"));
             if (isStreamMode) {
                 int sm4Mode = (opmode == Cipher.ENCRYPT_MODE) ? SymmetricCipherImpl.MODE_ENCRYPT : SymmetricCipherImpl.MODE_DECRYPT;
                 symmetricCipher = new SymmetricCipherImpl(getAlgorithmName(), mode, this.key, this.iv, sm4Mode, SymmetricCipherImpl.PADDING_NONE);
@@ -230,9 +251,13 @@ public abstract class AbstractBlockCipher extends CipherSpi {
                 } else {
                     result = new byte[0];
                 }
-                
-                // For XTS mode, we don't need a final block as it operates directly on blocks
-                if (!mode.equals("XTS")) {
+                if ("GCM".equals(mode)) {   
+                    byte[] tag = symmetricCipher.getTag();
+                    byte[] combined = new byte[result.length + tag.length];
+                    System.arraycopy(result, 0, combined, 0, result.length);
+                    System.arraycopy(tag, 0, combined, result.length, tag.length);
+                    result = combined;
+                } else if (!mode.equals("XTS")) { // For XTS mode, we don't need a final block as it operates directly on blocks
                     // Then get final block
                     byte[] finalBlock = symmetricCipher.doFinal();
                     
@@ -246,30 +271,52 @@ public abstract class AbstractBlockCipher extends CipherSpi {
                 }
                 return result;
             } else {
-                // First update with input if any
-                if (input != null && inputLen > 0) {
-                    result = symmetricCipher.update(input, inputOffset, inputLen);
+                // DECRYPT MODE
+                if (input != null && inputLen > 0 && inputOffset + inputLen <= input.length) {
+                    if ("GCM".equals(mode)) {
+                        // For GCM mode, separate the tag from the ciphertext
+                        int tagLength = symmetricCipher.getTagLength();
+                        if (inputLen <= tagLength) {
+                            throw new IllegalBlockSizeException("Input length must be greater than tag length (" + tagLength + ")");
+                        }
+                        int cipherTextLength = inputLen - tagLength;
+                        byte[] cipherText = Arrays.copyOfRange(input, inputOffset, inputOffset + cipherTextLength);
+                        byte[] tag = Arrays.copyOfRange(input, inputOffset + cipherTextLength, inputOffset + inputLen);
+                        
+                        // Process the ciphertext
+                        result = symmetricCipher.update(cipherText, 0, cipherTextLength);
+                        
+                        // Verify the tag
+                        byte[] computedTag = symmetricCipher.getTag();
+                        if (!Arrays.equals(tag, computedTag)) {
+                            throw new IllegalStateException("Invalid tag");
+                        }
+                        return result;
+                    } else {
+                        // For non-GCM modes, process normally
+                        result = symmetricCipher.update(input, inputOffset, inputLen);
+                    }
                 } else {
                     result = new byte[0];
                 }
                 
-                // For XTS mode, we don't need a final block as it operates directly on blocks
-                if (!mode.equals("XTS")) {
-                    // Then get final block
+                if ("XTS".equals(mode)) {
+                    // For XTS mode, no final block needed
+                    return result;
+                } else {
+                    // For other modes, get final block if needed
                     byte[] finalBlock = symmetricCipher.doFinal();
-                    
-                    // Combine results if necessary
                     if (finalBlock != null && finalBlock.length > 0) {
                         byte[] combined = new byte[result.length + finalBlock.length];
                         System.arraycopy(result, 0, combined, 0, result.length);
                         System.arraycopy(finalBlock, 0, combined, result.length, finalBlock.length);
                         return combined;
                     }
+                    return result;
                 }
-                return result;
             }
         } catch (Exception e) {
-            throw new BadPaddingException("Error during final operation: " + e.getMessage());
+            throw new IllegalStateException("Error during final operation: " + e.getMessage());
         }
     }
 
@@ -282,6 +329,15 @@ public abstract class AbstractBlockCipher extends CipherSpi {
         }
         System.arraycopy(result, 0, output, outputOffset, result.length);
         return result.length;
+    }
+
+    @Override
+    protected void engineUpdateAAD(byte[] aad, int offset, int len) throws UnsupportedOperationException {
+        if (mode.equals("GCM")) {
+            symmetricCipher.updateAAD(aad, offset, len);
+        } else {
+            throw new UnsupportedOperationException("Update AAD is only supported in GCM mode");
+        }
     }
 
     @Override
@@ -299,7 +355,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
     }
 
     protected int getPaddingMode() {
-        // Stream cipher modes (CTR, CFB, OFB) and authenticated encryption (GCM) don't use padding
+        // Stream cipher modes (CTR, CFB, OFB, GCM) and XTS mode don't use padding
         if (!padding.equalsIgnoreCase("NOPADDING") && 
             (mode.equals("CTR") || mode.equals("CFB") || mode.equals("OFB") || 
              mode.equals("GCM") || mode.equals("XTS"))) {
