@@ -41,7 +41,7 @@ public final class HiTls4jProvider extends Provider {
 
     public HiTls4jProvider() {
         super(PROVIDER_NAME, VERSION, INFO);
-        
+
         // Register symmetric ciphers
         put("Cipher.SM4", SM4CipherImpl.class.getName());
         put("Cipher.SM4 SupportedModes", "ECB|CBC|CTR|GCM|CFB|OFB|XTS");
@@ -94,7 +94,7 @@ public final class HiTls4jProvider extends Provider {
         put("AlgorithmParameterGenerator.EC", "sun.security.ec.ECParameterGenerator");
         put("KeyAgreement.EC", "sun.security.ec.ECDHKeyAgreement");
 
-                // Register specific transformations
+        // Register specific transformations
         // ECB mode
         put("Cipher.AES/ECB/NOPADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/ECB/NOPADDING");
         put("Cipher.AES/ECB/PKCS5PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/ECB/PKCS5PADDING");
@@ -102,7 +102,7 @@ public final class HiTls4jProvider extends Provider {
         put("Cipher.AES/ECB/ZEROSPADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/ECB/ZEROSPADDING");
         put("Cipher.AES/ECB/ISO7816PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/ECB/ISO7816PADDING");
         put("Cipher.AES/ECB/X923PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/ECB/X923PADDING");
-        
+
         // CBC mode
         put("Cipher.AES/CBC/NOPADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/CBC/NOPADDING");
         put("Cipher.AES/CBC/PKCS5PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$AESCipherOidImpl AES/CBC/PKCS5PADDING");
@@ -126,7 +126,7 @@ public final class HiTls4jProvider extends Provider {
         put("Cipher.SM4/ECB/ZEROSPADDING", "org.openhitls.crypto.jce.HiTls4jProvider$SM4CipherOidImpl SM4/ECB/ZEROSPADDING");
         put("Cipher.SM4/ECB/ISO7816PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$SM4CipherOidImpl SM4/ECB/ISO7816PADDING");
         put("Cipher.SM4/ECB/X923PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$SM4CipherOidImpl SM4/ECB/X923PADDING");
-        
+
         // CBC mode
         put("Cipher.SM4/CBC/NOPADDING", "org.openhitls.crypto.jce.HiTls4jProvider$SM4CipherOidImpl SM4/CBC/NOPADDING");
         put("Cipher.SM4/CBC/PKCS5PADDING", "org.openhitls.crypto.jce.HiTls4jProvider$SM4CipherOidImpl SM4/CBC/PKCS5PADDING");
@@ -161,7 +161,7 @@ public final class HiTls4jProvider extends Provider {
         put("MessageDigest.SHA3-384", "org.openhitls.crypto.jce.digest.MessageDigest$SHA3_384");
         put("MessageDigest.SHA3-512", "org.openhitls.crypto.jce.digest.MessageDigest$SHA3_512");
         put("MessageDigest.SM3", "org.openhitls.crypto.jce.digest.MessageDigest$SM3");
-        
+
         // Register algorithm aliases
         put("Alg.Alias.MessageDigest.SHA224", "SHA-224");
         put("Alg.Alias.MessageDigest.SHA256", "SHA-256");
@@ -206,5 +206,12 @@ public final class HiTls4jProvider extends Provider {
         put("Alg.Alias.Curve.P-384", "secp384r1");
         put("Alg.Alias.Curve.P-521", "secp521r1");
         put("Alg.Alias.Curve.SM2", "sm2p256v1");
+
+        put("KeyPairGenerator.ML-DSA", "org.openhitls.crypto.jce.key.generator.MLDSAKeyPairGenerator");
+        put("AlgorithmParameters.ML-DSA", "org.openhitls.crypto.jce.param.MLDSAParameters");
+        put("Signature.SHA256withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA256withMLDSA");
+        put("Signature.SHA384withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA384withMLDSA");
+        put("Signature.SHA512withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA512withMLDSA");
+        put("KeyFactory.ML-DSA", "org.openhitls.crypto.jce.key.factory.MLDSAKeyFactory");
     }
 }
