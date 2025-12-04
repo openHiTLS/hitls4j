@@ -19,12 +19,20 @@ public class MLDSAKeyPairGenerator extends KeyPairGeneratorSpi {
     public void initialize(int keySize, SecureRandom random) {
         // Map parameter set suffix to ML-DSA parameter set name
         try {
-            String paramSet = switch (keySize) {
-                case 44 -> "ML-DSA-44";
-                case 65 -> "ML-DSA-65";
-                case 87 -> "ML-DSA-87";
-                default -> throw new InvalidParameterException("Unsupported MLDSA key size: " + keySize);
-            };
+            String paramSet;
+            switch (keySize) {
+                case 44:
+                    paramSet = "ML-DSA-44";
+                    break;
+                case 65:
+                    paramSet = "ML-DSA-65";
+                    break;
+                case 87:
+                    paramSet = "ML-DSA-87";
+                    break;
+                default:
+                    throw new InvalidParameterException("Unsupported MLDSA key size: " + keySize);
+            }
             initialize(new MLDSAGenParameterSpec(paramSet), random);
         } catch (InvalidAlgorithmParameterException e) {
             throw new InvalidParameterException("Failed to initialize MLDSA: " + e.getMessage());
@@ -38,10 +46,12 @@ public class MLDSAKeyPairGenerator extends KeyPairGeneratorSpi {
         }
 
         // Handle MLDSAParameterSpec
-        if (params instanceof MLDSAParameterSpec mldsaParams) {
+        if (params instanceof MLDSAParameterSpec) {
+            MLDSAParameterSpec mldsaParams = (MLDSAParameterSpec) params;
             this.params = mldsaParams;
             this.paramSetName = MLDSAUtil.getParamSetName(mldsaParams);
-        } else if (params instanceof MLDSAGenParameterSpec genSpec) {
+        } else if (params instanceof MLDSAGenParameterSpec) {
+            MLDSAGenParameterSpec genSpec = (MLDSAGenParameterSpec) params;
             String name = genSpec.getName();
             // Validate supported parameter sets
             if (!name.equals("ML-DSA-44") && !name.equals("ML-DSA-65") && !name.equals("ML-DSA-87")) {

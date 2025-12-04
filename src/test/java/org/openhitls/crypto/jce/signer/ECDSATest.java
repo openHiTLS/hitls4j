@@ -305,12 +305,17 @@ public class ECDSATest extends BaseTest {
     }
 
     private String getSignatureAlgorithm(String curve) throws IllegalArgumentException {
-        return switch (curve) {
-            case "sm2p256v1" -> "SM3withSM2";
-            case "secp256r1" -> "SHA256withECDSA";
-            case "secp384r1" -> "SHA384withECDSA";
-            case "secp521r1" -> "SHA512withECDSA";
-            default -> throw new IllegalArgumentException("Unsupported curve: " + curve);
-        };
+        switch (curve) {
+            case "sm2p256v1":
+                return "SM3withSM2";
+            case "secp256r1":
+                return "SHA256withECDSA";
+            case "secp384r1":
+                return "SHA384withECDSA";
+            case "secp521r1":
+                return "SHA512withECDSA";
+            default:
+                throw new IllegalArgumentException("Unsupported curve: " + curve);
+        }
     }
 } 
