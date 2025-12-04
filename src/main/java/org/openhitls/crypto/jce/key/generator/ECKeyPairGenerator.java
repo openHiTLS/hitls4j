@@ -16,12 +16,20 @@ public class ECKeyPairGenerator extends KeyPairGeneratorSpi {
     public void initialize(int keySize, SecureRandom random) {
         // Map key sizes to appropriate curves
         try {
-            String curve = switch (keySize) {
-                case 256 -> "secp256v1";  
-                case 384 -> "secp384r1";
-                case 521 -> "secp521r1";
-                default -> throw new InvalidParameterException("Unsupported key size: " + keySize);
-            };
+            String curve;
+            switch (keySize) {
+                case 256:
+                    curve = "secp256v1";
+                    break;
+                case 384:
+                    curve = "secp384r1";
+                    break;
+                case 521:
+                    curve = "secp521r1";
+                    break;
+                default:
+                    throw new InvalidParameterException("Unsupported key size: " + keySize);
+            }
             initialize(new ECGenParameterSpec(curve), random);
         } catch (InvalidAlgorithmParameterException e) {
             throw new InvalidParameterException(e.getMessage());
@@ -33,9 +41,9 @@ public class ECKeyPairGenerator extends KeyPairGeneratorSpi {
 
         if (params == null) {
             throw new InvalidAlgorithmParameterException("Parameters cannot be null");
-        } else if (params instanceof ECParameterSpec ecParams) {
+        } else if (params instanceof ECParameterSpec) {
             try {
-                this.params = ecParams;
+                this.params = (ECParameterSpec) params;
             } catch (Exception e) {
                 throw new InvalidAlgorithmParameterException("Failed to verify parameters: " + e.getMessage());
             }
