@@ -79,4 +79,12 @@ public class CryptoNative {
     public static native void mldsaSetEncodeFlag(long nativeRef, boolean encodeFlag);
     public static native void mldsaSetExternalMuFlag(long nativeRef, boolean externalMuFlag);
     public static native void mldsaSetCxt(long nativeRef, byte[] context);
+
+    // MLKEM native methods
+    public static native long mlkemCreateContext(String parameterSet);
+    public static native byte[][] mlkemGenerateKeyPair(long nativeRef, String parameterSet);
+    public static native void mlkemSetKeys(long nativeRef, byte[] ek, byte[] dk);
+    public static native void mlkemFreeContext(long contextPtr);
+    public static native byte[][] mlkemEncapsulate(long nativeRef);
+    public static native byte[] mlkemDecapsulate(long nativeRef, byte[] encryptedData);
 }

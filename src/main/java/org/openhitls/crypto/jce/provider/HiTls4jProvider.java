@@ -213,5 +213,10 @@ public final class HiTls4jProvider extends Provider {
         put("Signature.SHA384withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA384withMLDSA");
         put("Signature.SHA512withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA512withMLDSA");
         put("KeyFactory.ML-DSA", "org.openhitls.crypto.jce.key.factory.MLDSAKeyFactory");
+
+        put("KeyPairGenerator.ML-KEM", "org.openhitls.crypto.jce.key.generator.MLKEMKeyPairGenerator");
+        put("AlgorithmParameters.ML-KEM", "org.openhitls.crypto.jce.param.MLKEMParameters");
+        put("KeyFactory.ML-KEM", "org.openhitls.crypto.jce.key.factory.MLKEMKeyFactory");
+        put("KeyAgreement.ML-KEM", "org.openhitls.crypto.jce.keyagreement.MLKEMKeyAgreement");
     }
 }
