@@ -207,6 +207,65 @@ signature.update(data);
 boolean valid = signature.verify(signatureBytes);
 ```
 
+### Using MLDSA
+```java
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
+import java.security.Signature;
+import org.openhitls.crypto.jce.spec.MLDSAGenParameterSpec;
+import org.openhitls.crypto.jce.HiTls4jProvider;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+// Generate key pair
+KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-DSA", HiTls4jProvider.PROVIDER_NAME);
+keyGen.initialize(new MLDSAGenParameterSpec("ML-DSA-44"), new SecureRandom());
+KeyPair keyPair = keyGen.generateKeyPair();
+
+// Sign data
+byte[] data = "Hello, world!".getBytes();
+Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+signer.initSign(keyPair.getPrivate());
+signer.update(data);
+byte[] signature = signer.sign();
+
+// Verify signature
+signer.initVerify(keyPair.getPublic());
+signer.update(data);
+boolean verified = signer.verify(signature);
+```
+
+### Using MLKEM
+
+```java
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
+import java.security.KeyAgreement;
+import org.openhitls.crypto.jce.spec.MLKEMGenParameterSpec;
+import org.openhitls.crypto.jce.spec.MLKEMCiphertextKey;
+import org.openhitls.crypto.jce.HiTls4jProvider;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+
+// Generate key pair
+KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+keyGen.initialize(new MLKEMGenParameterSpec("ML-KEM-512"), new SecureRandom());
+KeyPair keyPair = keyGen.generateKeyPair();
+
+// Encapsulation side
+KeyAgreement kaSender = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+kaSender.init(keyPair.getPublic());
+byte[] ciphertext = kaSender.doPhase(null, true).getEncoded();
+byte[] senderSharedKey = kaSender.generateSecret();
+
+// Decapsulation side
+KeyAgreement kaReceiver = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+kaReceiver.init(keyPair.getPrivate());
+kaReceiver.doPhase(new MLKEMCiphertextKey(ciphertext), true);
+byte[] receiverSharedKey = kaReceiver.generateSecret();
+```
+
 ## Supported Algorithms
 
 ### Cipher Algorithms
@@ -239,6 +298,10 @@ boolean valid = signature.verify(signatureBytes);
 - `EC` (with curves: secp256r1, secp384r1, secp521r1, sm2p256v1)
 - `AES`
 - `SM4`
+
+### PQC Algorithms
+- `ML-KEM-512`, `ML-KEM-768`, `ML-KEM-1024`
+- `ML-DSA-44`, `ML-DSA-65`, `ML-DSA-87`
 
 ## License
 
