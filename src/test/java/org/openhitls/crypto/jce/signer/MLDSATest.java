@@ -15,7 +15,6 @@ import java.security.*;
 import java.security.spec.*;
 import java.util.Collections;
 import java.nio.charset.StandardCharsets;
-import java.util.HexFormat;
 
 public class MLDSATest extends BaseTest {
     private static final String[] SUPPORTED_PARAMETERSETS = {"ML-DSA-44", "ML-DSA-65", "ML-DSA-87"};
@@ -269,11 +268,17 @@ public class MLDSATest extends BaseTest {
      * @return the byte array
      * @throws IllegalArgumentException if the string is not a valid hex string
      */
-    private static byte[] hexToBytes(String hexString) {
+    private static byte[] hexStringToByteArray(String hexString) {
         if (hexString == null || hexString.length() % 2 != 0) {
             throw new IllegalArgumentException("Invalid hex string");
         }
-        return HexFormat.of().parseHex(hexString);
+        int len = hexString.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(hexString.charAt(i), 16) << 4)
+                                + Character.digit(hexString.charAt(i+1), 16));
+        }
+        return data;
     }
 
     @Test
@@ -283,14 +288,14 @@ public class MLDSATest extends BaseTest {
             byte[] pubKey;
             byte[] privKey;
             if (parameterSet.equals("ML-DSA-44")) {
-                pubKey = hexToBytes(pk_44);
-                privKey = hexToBytes(sk_44);
+                pubKey = hexStringToByteArray(pk_44);
+                privKey = hexStringToByteArray(sk_44);
             } else if (parameterSet.equals("ML-DSA-65")) {
-                pubKey = hexToBytes(pk_65);
-                privKey = hexToBytes(sk_65);
+                pubKey = hexStringToByteArray(pk_65);
+                privKey = hexStringToByteArray(sk_65);
             } else {
-                pubKey = hexToBytes(pk_87);
-                privKey = hexToBytes(sk_87);
+                pubKey = hexStringToByteArray(pk_87);
+                privKey = hexStringToByteArray(sk_87);
             }
 
             // Initialize ML-DSA parameters
@@ -330,14 +335,14 @@ public class MLDSATest extends BaseTest {
             byte[] pubKey;
             byte[] privKey;
             if (parameterSet.equals("ML-DSA-44")) {
-                pubKey = hexToBytes(pk_44);
-                privKey = hexToBytes(sk_44);
+                pubKey = hexStringToByteArray(pk_44);
+                privKey = hexStringToByteArray(sk_44);
             } else if (parameterSet.equals("ML-DSA-65")) {
-                pubKey = hexToBytes(pk_65);
-                privKey = hexToBytes(sk_65);
+                pubKey = hexStringToByteArray(pk_65);
+                privKey = hexStringToByteArray(sk_65);
             } else {
-                pubKey = hexToBytes(pk_87);
-                privKey = hexToBytes(sk_87);
+                pubKey = hexStringToByteArray(pk_87);
+                privKey = hexStringToByteArray(sk_87);
             }
 
             // Initialize ML-DSA parameters
