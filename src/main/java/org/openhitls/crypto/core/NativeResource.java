@@ -1,28 +1,8 @@
 package org.openhitls.crypto.core;
 
-import java.lang.ref.Cleaner;
-
 public abstract class NativeResource {
-    private static final Cleaner CLEANER = Cleaner.create();
-    protected final Cleaner.Cleanable cleanable;
     protected final long nativeContext;
-
-    protected static class CleanerRunnable implements Runnable {
-        private final long nativeContext;
-        private final FreeCallback freeCallback;
-
-        CleanerRunnable(long nativeContext, FreeCallback freeCallback) {
-            this.nativeContext = nativeContext;
-            this.freeCallback = freeCallback;
-        }
-
-        @Override
-        public void run() {
-            if (nativeContext != 0) {
-                freeCallback.freeNativeContext(nativeContext);
-            }
-        }
-    }
+    protected final FreeCallback freeCallback;
 
     @FunctionalInterface
     protected interface FreeCallback {
@@ -31,6 +11,17 @@ public abstract class NativeResource {
 
     protected NativeResource(long nativeContext, FreeCallback freeCallback) {
         this.nativeContext = nativeContext;
-        this.cleanable = CLEANER.register(this, new CleanerRunnable(nativeContext, freeCallback));
+        this.freeCallback = freeCallback;
+    }
+
+    @Override
+    protected void finalize() throws Throwable {
+        try {
+            if (nativeContext != 0 && freeCallback != null) {
+                freeCallback.freeNativeContext(nativeContext);
+            }
+        } finally {
+            super.finalize();
+        }
     }
 }
