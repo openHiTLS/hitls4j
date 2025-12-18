@@ -209,6 +209,7 @@ public final class HiTls4jProvider extends Provider {
 
         put("KeyPairGenerator.ML-DSA", "org.openhitls.crypto.jce.key.generator.MLDSAKeyPairGenerator");
         put("AlgorithmParameters.ML-DSA", "org.openhitls.crypto.jce.param.MLDSAParameters");
+        put("Signature.SM3withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SM3withMLDSA");
         put("Signature.SHA256withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA256withMLDSA");
         put("Signature.SHA384withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA384withMLDSA");
         put("Signature.SHA512withMLDSA", "org.openhitls.crypto.jce.signer.MLDSASigner$SHA512withMLDSA");
@@ -218,5 +219,15 @@ public final class HiTls4jProvider extends Provider {
         put("AlgorithmParameters.ML-KEM", "org.openhitls.crypto.jce.param.MLKEMParameters");
         put("KeyFactory.ML-KEM", "org.openhitls.crypto.jce.key.factory.MLKEMKeyFactory");
         put("KeyAgreement.ML-KEM", "org.openhitls.crypto.jce.keyagreement.MLKEMKeyAgreement");
+
+        put("KeyPairGenerator.SLH-DSA", "org.openhitls.crypto.jce.key.generator.SLHDSAKeyPairGenerator");
+        put("AlgorithmParameters.SLH-DSA", "org.openhitls.crypto.jce.param.SLHDSAParameters");
+        put("Signature.SM3withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SM3withSLHDSA");
+        put("Signature.SHA256withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHA256withSLHDSA");
+        put("Signature.SHA384withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHA384withSLHDSA");
+        put("Signature.SHA512withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHA512withSLHDSA");
+        put("Signature.SHAKE128withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHAKE128withSLHDSA");
+        put("Signature.SHAKE256withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHAKE256withSLHDSA");
+        put("KeyFactory.SLH-DSA", "org.openhitls.crypto.jce.key.factory.SLHDSAKeyFactory");
     }
 }

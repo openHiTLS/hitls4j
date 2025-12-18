@@ -511,6 +511,86 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
 JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemDecapsulate
   (JNIEnv *, jclass, jlong, jbyteArray);
 
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaCreateContext
+ * Signature: (Ljava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaCreateContext
+  (JNIEnv *, jclass, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaGenerateKeyPair
+ * Signature: (JLjava/lang/String;)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaGenerateKeyPair
+  (JNIEnv *, jclass, jlong, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaSetKeys
+ * Signature: (J[B[B)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetKeys
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaFreeContext
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaFreeContext
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaSign
+ * Signature: (J[BI)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSign
+  (JNIEnv *, jclass, jlong, jbyteArray, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaVerify
+ * Signature: (J[B[BI)Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaVerify
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaSetDeterministic
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetDeterministic
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaSetPreHash
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetPreHash
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaSetCxt
+ * Signature: (J[B)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetCxt
+  (JNIEnv *, jclass, jlong, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    slhdsaSetAdditionalRandomness
+ * Signature: (J[B)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetAdditionalRandomness
+  (JNIEnv *, jclass, jlong, jbyteArray);
+
 #ifdef __cplusplus
 }
 #endif

@@ -431,6 +431,10 @@ static int getMdId(int hashAlg) {
             return CRYPT_MD_SHA384;
         case 6:  // HASH_ALG_SHA512
             return CRYPT_MD_SHA512;
+        case 7:  // HASH_ALG_SHAKE128
+            return CRYPT_MD_SHAKE128;
+        case 8:  // HASH_ALG_SHAKE256
+            return CRYPT_MD_SHAKE256;
         default:
             return CRYPT_MD_SHA256; // Default to SHA256
     }
@@ -2419,16 +2423,15 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSi
         return NULL;
     }
 
-    uint32_t val;
-    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SIGNLEN, &val, sizeof(val));
+    uint32_t signLen;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SIGNLEN, &signLen, sizeof(signLen));
     if (ret != CRYPT_SUCCESS) {
         (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get signature length", ret);
         return NULL;
     }
 
-    uint8_t *signBuf = malloc(val);
-    uint32_t signLen = val; // 4627 is max length of signature (ML-DSA-87)
+    uint8_t *signBuf = malloc(signLen);
     if (signBuf == NULL) {
         (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for signature");
@@ -2437,9 +2440,9 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSi
 
     int mdId = getMdId(hashAlg);
     ret = CRYPT_EAL_PkeySign(pkey, mdId, (uint8_t *)inputData, inputLen, signBuf, &signLen);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
     if (ret != CRYPT_SUCCESS) {
         free(signBuf);
-        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
         throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to sign data", ret);
         return NULL;
     }
@@ -2450,7 +2453,6 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSi
     }
 
     free(signBuf);
-    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
     return result;
 }
 
@@ -2632,7 +2634,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     pubKey.key.kemEk.data = malloc(publicKeySize);
     pubKey.key.kemEk.len = publicKeySize;
     if (pubKey.key.kemEk.data == NULL) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for public key", ret);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for public key");
         return NULL;
     }
     ret = CRYPT_EAL_PkeyGetPub(pkey, &pubKey);
@@ -2650,7 +2652,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     privKey.key.kemDk.len = privateKeySize;
     if (privKey.key.kemDk.data == NULL) {
         free(pubKey.key.kemEk.data);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for private key", ret);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for private key");
         return NULL;
     }
     ret = CRYPT_EAL_PkeyGetPrv(pkey, &privKey);
@@ -2826,7 +2828,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemDe
     }
 
     // Decapsulation
-    ret = CRYPT_EAL_PkeyDecaps(pkey, ciphertext, ciphertextLen, sharedKey, &sharedKeyLen);
+    ret = CRYPT_EAL_PkeyDecaps(pkey, (const uint8_t *)ciphertext, (uint32_t)ciphertextLen, sharedKey, &sharedKeyLen);
     (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
     if (ret != CRYPT_SUCCESS) {
         free(sharedKey);
@@ -2845,4 +2847,436 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemDe
     free(sharedKey);
 
     return sharedKeyArray;
+}
+
+static int getSlhDsaParamId(const char *parameterSet) {
+    if (parameterSet == NULL) {
+        return -1;
+    }
+    
+    if (strcmp(parameterSet, "SLH-DSA-SHA2-128s") == 0) {
+        return CRYPT_SLH_DSA_SHA2_128S;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHA2-128f") == 0) {
+        return CRYPT_SLH_DSA_SHA2_128F;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHA2-192s") == 0) {
+        return CRYPT_SLH_DSA_SHA2_192S;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHA2-192f") == 0) {
+        return CRYPT_SLH_DSA_SHA2_192F;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHA2-256s") == 0) {
+        return CRYPT_SLH_DSA_SHA2_256S;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHA2-256f") == 0) {
+        return CRYPT_SLH_DSA_SHA2_256F;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-128s") == 0) {
+        return CRYPT_SLH_DSA_SHA2_128S;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-128f") == 0) {
+        return CRYPT_SLH_DSA_SHA2_128F;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-192s") == 0) {
+        return CRYPT_SLH_DSA_SHAKE_192S;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-192f") == 0) {
+        return CRYPT_SLH_DSA_SHAKE_192F;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-256s") == 0) {
+        return CRYPT_SLH_DSA_SHAKE_256S;
+    } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-256f") == 0) {
+        return CRYPT_SLH_DSA_SHAKE_256F;
+    }
+    
+    return -1;  // Unknown parameter set
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaCreateContext
+  (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    int paramId = getSlhDsaParamId(parameterSet);
+    (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
+    if (paramId == -1) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid parameter set");
+        return 0;
+    }
+
+    int ret;
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_SLH_DSA);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create SLHDSA context");
+        return 0;
+    }
+
+    ret = CRYPT_EAL_PkeySetParaById(pkey, paramId);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA parameter set", ret);
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        return 0;
+    }
+
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef, jstring jparameterSet) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    // get key length
+    uint32_t n;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SLH_DSA_KEY_LEN, &n, sizeof(n));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get SLHDSA key length", ret);
+        return NULL;
+    }
+    
+    // generate keyPair
+    ret = CRYPT_EAL_PkeyGen(pkey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate SLHDSA key pair", ret);
+        return NULL;
+    }
+
+    // get public key
+    CRYPT_EAL_PkeyPub pubKey;
+    memset(&pubKey, 0, sizeof(pubKey));
+    pubKey.id = CRYPT_PKEY_SLH_DSA;
+    pubKey.key.slhDsaPub.seed = malloc(n);
+    pubKey.key.slhDsaPub.root = malloc(n);
+    pubKey.key.slhDsaPub.len = n;
+    if (pubKey.key.slhDsaPub.seed == NULL || pubKey.key.slhDsaPub.root == NULL) {
+        free(pubKey.key.slhDsaPub.seed);
+        free(pubKey.key.slhDsaPub.root);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for SLHDSA public key");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeyGetPub(pkey, &pubKey);
+    if (ret != CRYPT_SUCCESS) {
+        free(pubKey.key.slhDsaPub.seed);
+        free(pubKey.key.slhDsaPub.root);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get SLHDSA public key", ret);
+        return NULL;
+    }
+
+    // get private key
+    CRYPT_EAL_PkeyPrv privKey;
+    memset(&privKey, 0, sizeof(privKey));
+    privKey.id = CRYPT_PKEY_SLH_DSA;
+    privKey.key.slhDsaPrv.seed = malloc(n);
+    privKey.key.slhDsaPrv.prf = malloc(n);
+    privKey.key.slhDsaPrv.pub.seed = malloc(n);
+    privKey.key.slhDsaPrv.pub.root = malloc(n);
+    privKey.key.slhDsaPrv.pub.len = n;
+    if (privKey.key.slhDsaPrv.seed == NULL || privKey.key.slhDsaPrv.prf == NULL || privKey.key.slhDsaPrv.pub.seed == NULL || privKey.key.slhDsaPrv.pub.root == NULL) {
+        free(pubKey.key.slhDsaPub.seed);
+        free(pubKey.key.slhDsaPub.root);
+        free(privKey.key.slhDsaPrv.seed);
+        free(privKey.key.slhDsaPrv.prf);
+        free(privKey.key.slhDsaPrv.pub.seed);
+        free(privKey.key.slhDsaPrv.pub.root);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for SLHDSA private key");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeyGetPrv(pkey, &privKey);
+    if (ret != CRYPT_SUCCESS) {
+        free(pubKey.key.slhDsaPub.seed);
+        free(pubKey.key.slhDsaPub.root);
+        free(privKey.key.slhDsaPrv.seed);
+        free(privKey.key.slhDsaPrv.prf);
+        free(privKey.key.slhDsaPrv.pub.seed);
+        free(privKey.key.slhDsaPrv.pub.root);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get SLHDSA private key", ret);
+        return NULL;
+    }
+
+    // create byte arrays for public key and private key
+    jbyteArray publicKeyArray = (*env)->NewByteArray(env, 2 * n);
+    jbyteArray privateKeyArray = (*env)->NewByteArray(env, 4 * n);
+    if (publicKeyArray == NULL || privateKeyArray == NULL) {
+        free(pubKey.key.slhDsaPub.seed);
+        free(pubKey.key.slhDsaPub.root);
+        free(privKey.key.slhDsaPrv.seed);
+        free(privKey.key.slhDsaPrv.prf);
+        free(privKey.key.slhDsaPrv.pub.seed);
+        free(privKey.key.slhDsaPrv.pub.root);  
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte array for SLHDSA public key");
+        return NULL;
+    }
+
+    // copy public key and private key to byte array
+    (*env)->SetByteArrayRegion(env, publicKeyArray, 0, n, (jbyte *)pubKey.key.slhDsaPub.seed);
+    (*env)->SetByteArrayRegion(env, publicKeyArray, n, n, (jbyte *)pubKey.key.slhDsaPub.root);
+
+    (*env)->SetByteArrayRegion(env, privateKeyArray, 0, n, (jbyte *)privKey.key.slhDsaPrv.seed);
+    (*env)->SetByteArrayRegion(env, privateKeyArray, n, n, (jbyte *)privKey.key.slhDsaPrv.prf);
+    (*env)->SetByteArrayRegion(env, privateKeyArray, 2 * n, n, (jbyte *)privKey.key.slhDsaPrv.pub.seed);
+    (*env)->SetByteArrayRegion(env, privateKeyArray, 3 * n, n, (jbyte *)privKey.key.slhDsaPrv.pub.root);
+
+    free(pubKey.key.slhDsaPub.seed);
+    free(pubKey.key.slhDsaPub.root);
+    free(privKey.key.slhDsaPrv.seed);
+    free(privKey.key.slhDsaPrv.prf);
+    free(privKey.key.slhDsaPrv.pub.seed);
+    free(privKey.key.slhDsaPrv.pub.root);
+
+    // create byte array for keyPair
+    jobjectArray keyPair = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, publicKeyArray), NULL);
+    if (keyPair == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte array for keyPair");
+        return NULL;
+    }
+    (*env)->SetObjectArrayElement(env, keyPair, 0, publicKeyArray);
+    (*env)->SetObjectArrayElement(env, keyPair, 1, privateKeyArray);
+
+    return keyPair;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetKeys
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey, jbyteArray privateKey) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    if (publicKey != NULL) {
+        CRYPT_EAL_PkeyPub pubKey;
+        memset(&pubKey, 0, sizeof(pubKey));
+        pubKey.id = CRYPT_PKEY_SLH_DSA;
+        jsize pubKeyLen = (*env)->GetArrayLength(env, publicKey);
+
+        pubKey.key.slhDsaPub.seed = malloc(pubKeyLen / 2);
+        pubKey.key.slhDsaPub.root = malloc(pubKeyLen / 2);
+        if (pubKey.key.slhDsaPub.seed == NULL || pubKey.key.slhDsaPub.root == NULL) {
+            free(pubKey.key.slhDsaPub.seed);
+            free(pubKey.key.slhDsaPub.root);
+            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for SLHDSA public key");
+            return;
+        }
+
+        (*env)->GetByteArrayRegion(env, publicKey, 0, pubKeyLen / 2, (jbyte *)pubKey.key.slhDsaPub.seed);
+        (*env)->GetByteArrayRegion(env, publicKey, pubKeyLen / 2, pubKeyLen / 2, (jbyte *)pubKey.key.slhDsaPub.root);
+        pubKey.key.slhDsaPub.len = pubKeyLen / 2;
+
+        ret = CRYPT_EAL_PkeySetPub(pkey, &pubKey);
+        free(pubKey.key.slhDsaPub.seed);
+        free(pubKey.key.slhDsaPub.root);
+        if (ret != CRYPT_SUCCESS) {
+            throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA public key", ret);
+            return;
+        }
+    }
+
+    if (privateKey != NULL) {
+        CRYPT_EAL_PkeyPrv privKey;
+        memset(&privKey, 0, sizeof(privKey));
+        privKey.id = CRYPT_PKEY_SLH_DSA;
+        jsize privKeyLen = (*env)->GetArrayLength(env, privateKey);
+
+        privKey.key.slhDsaPrv.seed = malloc(privKeyLen / 4);
+        privKey.key.slhDsaPrv.prf = malloc(privKeyLen / 4);
+        privKey.key.slhDsaPrv.pub.seed = malloc(privKeyLen / 4);
+        privKey.key.slhDsaPrv.pub.root = malloc(privKeyLen / 4);
+        if (privKey.key.slhDsaPrv.seed == NULL || privKey.key.slhDsaPrv.prf == NULL || privKey.key.slhDsaPrv.pub.seed == NULL || privKey.key.slhDsaPrv.pub.root == NULL) {
+            free(privKey.key.slhDsaPrv.seed);
+            free(privKey.key.slhDsaPrv.prf);
+            free(privKey.key.slhDsaPrv.pub.seed);
+            free(privKey.key.slhDsaPrv.pub.root);
+            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for SLHDSA private key");
+            return;
+        }
+
+        (*env)->GetByteArrayRegion(env, privateKey, 0, privKeyLen / 4, (jbyte *)privKey.key.slhDsaPrv.seed);
+        (*env)->GetByteArrayRegion(env, privateKey, privKeyLen / 4, privKeyLen / 4, (jbyte *)privKey.key.slhDsaPrv.prf);
+        (*env)->GetByteArrayRegion(env, privateKey, 2 * privKeyLen / 4, privKeyLen / 4, (jbyte *)privKey.key.slhDsaPrv.pub.seed);
+        (*env)->GetByteArrayRegion(env, privateKey, 3 * privKeyLen / 4, privKeyLen / 4, (jbyte *)privKey.key.slhDsaPrv.pub.root);
+        privKey.key.slhDsaPrv.pub.len = privKeyLen / 4;
+
+        ret = CRYPT_EAL_PkeySetPrv(pkey, &privKey);
+        free(privKey.key.slhDsaPrv.seed);
+        free(privKey.key.slhDsaPrv.prf);
+        free(privKey.key.slhDsaPrv.pub.seed);
+        free(privKey.key.slhDsaPrv.pub.root);
+        if (ret != CRYPT_SUCCESS) {
+            throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA private key", ret);
+            return;
+        }
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+    }
+}
+
+static uint32_t getSlhDsaSignatureLength(int parameterId) {
+    switch (parameterId) {
+        case CRYPT_SLH_DSA_SHA2_128S:
+        case CRYPT_SLH_DSA_SHAKE_128S:
+            return 7856;
+        case CRYPT_SLH_DSA_SHA2_128F:
+        case CRYPT_SLH_DSA_SHAKE_128F:
+            return 17088;
+        case CRYPT_SLH_DSA_SHA2_192S:
+        case CRYPT_SLH_DSA_SHAKE_192S:
+            return 16224;
+        case CRYPT_SLH_DSA_SHA2_192F:
+        case CRYPT_SLH_DSA_SHAKE_192F:
+            return 35664;
+        case CRYPT_SLH_DSA_SHA2_256S:
+        case CRYPT_SLH_DSA_SHAKE_256S:
+            return 29792;
+        case CRYPT_SLH_DSA_SHA2_256F:
+        case CRYPT_SLH_DSA_SHAKE_256F:
+            return 49856;
+        default:
+            return 0; // Unknown algorithm
+    }
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSign
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jint hashAlg) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
+    jsize inputLen = (*env)->GetArrayLength(env, data);
+    if (inputData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
+        return NULL;
+    }
+
+    // get signature length
+    int32_t paraId;
+    if (CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_PARAID, &paraId, sizeof(paraId)) != CRYPT_SUCCESS) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get parameter ID");
+        return NULL;
+    }
+
+    uint32_t signLen = getSlhDsaSignatureLength(paraId);
+    if (signLen == 0) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get signature length");
+        return NULL;
+    }
+
+    // create temporary buffer for signature
+    uint8_t *signBuf = malloc(signLen);
+    if (signBuf == NULL) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for signature");
+        return NULL;
+    }
+
+    // sign data
+    int mdId = getMdId(hashAlg);
+    ret = CRYPT_EAL_PkeySign(pkey, mdId, (uint8_t *)inputData, inputLen, signBuf, &signLen);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        free(signBuf);
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to sign data", ret);
+        return NULL;
+    }
+
+    // create byte array for signature
+    jbyteArray result = (*env)->NewByteArray(env, signLen);
+    if (result != NULL) {
+        (*env)->SetByteArrayRegion(env, result, 0, signLen, (jbyte *)signBuf);
+    }
+
+    free(signBuf);
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaVerify
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature, jint hashAlg) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    // get inputData for native methods
+    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
+    jsize inputLen = (*env)->GetArrayLength(env, data);
+    if (inputData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
+        return JNI_FALSE;
+    }
+
+    // get signData for native methods
+    jbyte *signData = (*env)->GetByteArrayElements(env, signature, NULL);
+    jsize signLen = (*env)->GetArrayLength(env, signature);
+    if (signData == NULL) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get sign data");
+        return JNI_FALSE;
+    }
+
+    int mdId = getMdId(hashAlg);
+    ret = CRYPT_EAL_PkeyVerify(pkey, mdId, (uint8_t *)inputData, inputLen, (uint8_t *)signData, signLen);
+
+    (*env)->ReleaseByteArrayElements(env, signature, signData, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+
+    return (ret == CRYPT_SUCCESS) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetDeterministic
+  (JNIEnv *env, jclass cls, jlong nativeRef, jboolean deterministic) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    uint32_t val = deterministic ? 1 : 0;
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_DETERMINISTIC_FLAG, &val, sizeof(val));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set MLDSA deterministic flag", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetPreHash
+  (JNIEnv *env, jclass cls, jlong nativeRef, jboolean preHash) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    uint32_t val = preHash ? 1 : 0;
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_PREHASH_FLAG, &val, sizeof(val));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set MLDSA preHash flag", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetCxt
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray context) {
+    if (context == NULL) {
+        return;
+    }
+
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+
+    // get context for native methods
+    jbyte *data = (*env)->GetByteArrayElements(env, context, NULL);
+    jsize dataLen = (*env)->GetArrayLength(env, context);
+    if (data == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get context data");
+        return;
+    }
+
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_CTX_INFO, (uint8_t *)data, dataLen);
+    (*env)->ReleaseByteArrayElements(env, context, data, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA context", ret);
+    }
+    return;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetAdditionalRandomness
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray additionalRandomness) {
+    if (additionalRandomness == NULL) {
+        return;
+    }
+
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+
+    // get additionalRandomness for native methods
+    jbyte *data = (*env)->GetByteArrayElements(env, additionalRandomness, NULL);
+    jsize dataLen = (*env)->GetArrayLength(env, additionalRandomness);
+    if (data == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get additionalRandomness data");
+        return;
+    }
+
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_SLH_DSA_ADDRAND, (uint8_t *)data, dataLen);
+    (*env)->ReleaseByteArrayElements(env, additionalRandomness, data, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA additionalRandomness", ret);
+    }
+    return;
 }
