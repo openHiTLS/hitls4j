@@ -87,4 +87,16 @@ public class CryptoNative {
     public static native void mlkemFreeContext(long contextPtr);
     public static native byte[][] mlkemEncapsulate(long nativeRef);
     public static native byte[] mlkemDecapsulate(long nativeRef, byte[] encryptedData);
+
+    // SLHDSA native methods
+    public static native long slhdsaCreateContext(String parameterSet);
+    public static native byte[][] slhdsaGenerateKeyPair(long nativeRef, String parameterSet);
+    public static native void slhdsaSetKeys(long nativeRef, byte[] publicKey, byte[] privateKey);
+    public static native void slhdsaFreeContext(long contextPtr);
+    public static native byte[] slhdsaSign(long nativeRef, byte[] data, int hashAlgorithm);
+    public static native boolean slhdsaVerify(long nativeRef, byte[] data, byte[] signature, int hashAlgorithm);
+    public static native void slhdsaSetDeterministic(long nativeRef, boolean deterministic);
+    public static native void slhdsaSetPreHash(long nativeRef, boolean preHash);
+    public static native void slhdsaSetCxt(long nativeRef, byte[] context);
+    public static native void slhdsaSetAdditionalRandomness(long nativeRef, byte[] additionalRandomness);
 }

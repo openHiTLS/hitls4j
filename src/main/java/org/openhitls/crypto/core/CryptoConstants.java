@@ -8,4 +8,6 @@ public class CryptoConstants {
     public static final int HASH_ALG_SHA256 = 4;
     public static final int HASH_ALG_SHA384 = 5;
     public static final int HASH_ALG_SHA512 = 6;
+    public static final int HASH_ALG_SHAKE128 = 7;
+    public static final int HASH_ALG_SHAKE256 = 8;
 } 
