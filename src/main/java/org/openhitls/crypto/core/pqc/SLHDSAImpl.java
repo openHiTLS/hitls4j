@@ -4,7 +4,7 @@ import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
 import org.openhitls.crypto.jce.spec.SLHDSASignatureParameterSpec;
 
-public class SLHDSAImpl extends NativeResource{
+public class SLHDSAImpl extends NativeResource {
     private byte[] publicKey;
     private byte[] privateKey;
     private String parameterSet;
@@ -90,7 +90,7 @@ public class SLHDSAImpl extends NativeResource{
             CryptoNative.slhdsaSetCxt(nativeContext, signParams.getContext());
             CryptoNative.slhdsaSetAdditionalRandomness(nativeContext, signParams.getAdditionalRandomness());
         } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to set MLDSA signatureParameters:" + e.getMessage(), e);
+            throw new IllegalArgumentException("Failed to set SLHDSA signatureParameters:" + e.getMessage(), e);
         }
         return CryptoNative.slhdsaVerify(nativeContext, data, signature, hashAlgorithm);
     }

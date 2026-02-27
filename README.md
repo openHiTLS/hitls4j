@@ -302,6 +302,8 @@ byte[] receiverSharedKey = kaReceiver.generateSecret();
 ### PQC Algorithms
 - `ML-KEM-512`, `ML-KEM-768`, `ML-KEM-1024`
 - `ML-DSA-44`, `ML-DSA-65`, `ML-DSA-87`
+- `SLH-DSA-SHA2-128s`, `SLH-DSA-SHA2-128f`, `SLH-DSA-SHA2-192s`, `SLH-DSA-SHA2-192f`, `SLH-DSA-SHA2-256s`, `SLH-DSA-SHA2-256f`
+- `SLH-DSA-SHAKE-128s`, `SLH-DSA-SHAKE-128f`, `SLH-DSA-SHAKE-192s`, `SLH-DSA-SHAKE-192f`, `SLH-DSA-SHAKE-256s`, `SLH-DSA-SHAKE-256f`
 
 ## License
 
