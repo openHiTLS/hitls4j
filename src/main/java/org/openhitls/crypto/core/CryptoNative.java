@@ -121,4 +121,5 @@ public class CryptoNative {
     public static native void mcelieceFreeContext(long contextPtr);
     public static native byte[][] mcelieceEncapsulate(long nativeRef);
     public static native byte[] mcelieceDecapsulate(long nativeRef, byte[] encryptedData);
+
 }

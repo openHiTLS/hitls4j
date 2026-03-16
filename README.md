@@ -39,10 +39,14 @@ HiTLS4J provides the following cryptographic functionalities:
 - **EC**: Key pair generation for various curves (secp256r1, secp384r1, secp521r1, sm2p256v1)
 - **Symmetric Keys**: Generation for AES and SM4
 
+### Provider Integration
+- **External openHiTLS providers**: HiTLS4J can load an external openHiTLS provider for algorithms exposed by that provider
+
 ## Requirements
 
-- Java 17 or higher
-- openHiTLS library installed on the system
+- Java 8 or higher
+- Maven 3.x
+- openHiTLS headers and shared libraries built on the system
 - GCC compiler for building the JNI component
 
 ## Installation
@@ -75,6 +79,17 @@ HiTLS4J provides the following cryptographic functionalities:
    mvn clean package
    ```
 
+The default build only requires openHiTLS. It builds `libhitls_crypto_jni.so`,
+copies the required `libhitls_*.so` files into `target/native`, and packages
+those native libraries under `META-INF/native` in the JAR. It does not copy or
+package external provider libraries.
+
+You can also pass the openHiTLS root directly:
+
+```
+mvn clean package -Dopenhitls.root=/path/to/openhitls
+```
+
 ### Native Library Loading
 
 At runtime, `OPENHITLS_ROOT` and `openhitls.root` are not treated as native
@@ -93,6 +108,81 @@ Packaged native libraries are stored directly under `META-INF/native`; each JAR
 contains one native build and does not select an architecture-specific
 subdirectory at runtime.
 
+### Using External Providers From the JAR
+
+For a normal application, the HiTLS4J JAR provides the Java JCE provider and the
+JNI bridge. External openHiTLS providers are loaded separately from a provider
+directory on the target machine.
+
+If you use the JAR produced by `mvn package`, the required HiTLS4J/openHiTLS
+native libraries are packaged in the JAR and are extracted automatically. If you
+run from an unpackaged local build instead, pass `openhitls.native.path` as
+described above.
+
+Load the external openHiTLS provider once during application startup, before
+creating HiTLS4J cryptographic objects:
+
+```java
+import java.security.MessageDigest;
+import java.security.Security;
+import org.openhitls.crypto.jce.provider.HiTls4jProvider;
+import org.openhitls.crypto.jce.provider.ProviderConfig;
+
+public final class ProviderExample {
+    public static void main(String[] args) throws Exception {
+        // Directory containing lib<providerName>.so.
+        String providerPath = "/path/to/openhitls/providers";
+        String providerName = "custom_hsm";
+
+        ProviderConfig.loadProvider(providerPath, providerName);
+        Security.addProvider(new HiTls4jProvider());
+
+        // Use algorithms exposed by the loaded provider.
+        MessageDigest md = MessageDigest.getInstance("SM3", HiTls4jProvider.PROVIDER_NAME);
+        byte[] digest = md.digest(new byte[] {1, 2, 3});
+    }
+}
+```
+
+Run the application with the HiTLS4J JAR on the classpath:
+
+```
+java -cp hitls4j-1.0.jar:your-app.jar com.example.ProviderExample
+```
+
+The provider path passed to `ProviderConfig.loadProvider(...)` is the directory
+that contains the external provider shared library. For provider name
+`custom_hsm`, openHiTLS loads `libcustom_hsm.so` from that directory.
+
+Some external providers need their own configuration, such as hardware SDK
+libraries or backend shared libraries. Configure those dependencies according to
+the external provider's own rules before starting the JVM. HiTLS4J does not
+define provider-specific parameters; `ProviderConfig.loadProvider(...)` only
+loads the openHiTLS provider and selects it for later HiTLS4J operations.
+
+Provider lifecycle restrictions:
+
+- Treat `ProviderConfig.loadProvider(...)` and `unloadProvider()` as
+  process-wide provider selection operations.
+- Only one external provider may be active at a time. Calling
+  `loadProvider(...)` while a provider is already loaded fails; provider
+  replacement/switching is not supported.
+- `unloadProvider()` releases the loaded native provider library context and
+  returns new HiTLS4J operations to the default openHiTLS implementation.
+- Do not call load or unload concurrently with HiTLS4J cryptographic context
+  creation or operations.
+- Load and unload external providers only at application quiescent points, before
+  worker threads create cryptographic objects and after all cryptographic
+  objects created under the loaded provider have been finalized.
+- Do not call `unloadProvider()` while any cryptographic object created under the
+  loaded provider is live, in use, or awaiting finalization. Pending finalizers
+  may still need the provider library context to release native resources.
+
+Use one consistent openHiTLS build across HiTLS4J, the external provider, and
+its provider-specific dependencies where possible. Mixing shared libraries built
+against different openHiTLS trees can cause provider loading or symbol
+resolution failures.
+
 ## Usage
 
 ### Registering the Provider
@@ -103,6 +193,34 @@ import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 
 // Register the provider
 Security.addProvider(new HiTls4jProvider());
+```
+
+### Using Symmetric Encryption (SM4)
+
+```java
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+import org.openhitls.crypto.jce.provider.HiTls4jProvider;
+
+// Create 128-bit SM4 key
+byte[] keyBytes = new byte[16];
+new java.security.SecureRandom().nextBytes(keyBytes);
+
+SecretKeySpec key = new SecretKeySpec(keyBytes, "SM4");
+
+// ECB mode with NoPadding
+Cipher cipher = Cipher.getInstance("SM4/ECB/NoPadding", HiTls4jProvider.PROVIDER_NAME);
+cipher.init(Cipher.ENCRYPT_MODE, key);
+
+// Data must be block-aligned (16 bytes for SM4) when using NoPadding
+byte[] plaintext = new byte[32]; // 2 blocks
+new java.security.SecureRandom().nextBytes(plaintext);
+
+byte[] ciphertext = cipher.doFinal(plaintext);
+
+// Decrypt
+cipher.init(Cipher.DECRYPT_MODE, key);
+byte[] decrypted = cipher.doFinal(ciphertext);
 ```
 
 ### Using Symmetric Encryption (AES)

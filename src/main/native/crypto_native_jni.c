@@ -1,5 +1,6 @@
 #include <jni.h>
 #include "org_openhitls_crypto_core_CryptoNative.h"
+#include "org_openhitls_crypto_jce_provider_ProviderConfig.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -198,6 +199,25 @@ static void freeRsaPrivateKeyBuffers(CRYPT_EAL_PkeyPrv *privKey, uint32_t allocL
 static volatile int32_t g_initialized = 0;
 static pthread_mutex_t g_init_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Global provider state
+static CRYPT_EAL_LibCtx *g_libCtx = NULL;
+static char *g_providerAttr = NULL;
+
+static void clearProviderSelectionNoLock(void) {
+    if (g_providerAttr != NULL) {
+        free(g_providerAttr);
+        g_providerAttr = NULL;
+    }
+}
+
+static void freeProviderStateNoLock(void) {
+    if (g_libCtx != NULL) {
+        CRYPT_EAL_LibCtxFree(g_libCtx);
+        g_libCtx = NULL;
+    }
+    clearProviderSelectionNoLock();
+}
+
 static void bslInit() {
     BSL_ERR_Init();
     BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
@@ -242,6 +262,15 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     return JNI_VERSION_1_8;
 }
 
+JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved) {
+    (void)vm;
+    (void)reserved;
+
+    pthread_mutex_lock(&g_init_mutex);
+    freeProviderStateNoLock();
+    pthread_mutex_unlock(&g_init_mutex);
+}
+
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestInit
   (JNIEnv *env, jclass cls, jstring jalgorithm) {
     const char *algorithm = (*env)->GetStringUTFChars(env, jalgorithm, NULL);
@@ -278,7 +307,7 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDiges
     }
     (*env)->ReleaseStringUTFChars(env, jalgorithm, algorithm);
 
-    CRYPT_EAL_MdCTX *ctx = CRYPT_EAL_MdNewCtx(mdId);
+    CRYPT_EAL_MdCTX *ctx = CRYPT_EAL_ProviderMdNewCtx(g_libCtx, mdId, g_providerAttr);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create message digest context");
         return 0;
@@ -403,7 +432,7 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacInit
         return 0;
     }
     
-    CRYPT_EAL_MacCtx *ctx = CRYPT_EAL_MacNewCtx(algorithmId);
+    CRYPT_EAL_MacCtx *ctx = CRYPT_EAL_ProviderMacNewCtx(g_libCtx, algorithmId, g_providerAttr);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create HMAC context");
         return 0;
@@ -600,7 +629,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaCreateC
     CRYPT_EAL_PkeyCtx *pkey;
     int ret;
     if (curveId == CRYPT_ECC_SM2) {
-        pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_SM2);
+        pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_SM2,
+            CRYPT_EAL_PKEY_UNKNOWN_OPERATE, g_providerAttr);
         if (pkey == NULL) {
             throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create context");
             return 0;
@@ -617,7 +647,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaCreateC
             return 0;
         }
     } else {
-        pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_ECDSA);
+        pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_ECDSA,
+            CRYPT_EAL_PKEY_UNKNOWN_OPERATE, g_providerAttr);
         if (pkey == NULL) {
             throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create context");
             return 0;
@@ -1105,7 +1136,7 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCip
     }
     (*env)->ReleaseStringUTFChars(env, algorithm, algoStr);
 
-    CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(algId);
+    CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_ProviderCipherNewCtx(g_libCtx, algId, g_providerAttr);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create cipher context");
         return 0;
@@ -1266,7 +1297,8 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetr
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaCreateContext
   (JNIEnv *env, jclass cls) {
-    CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_DSA);
+    CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_DSA,
+        CRYPT_EAL_PKEY_UNKNOWN_OPERATE, g_providerAttr);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create DSA context");
         return 0;
@@ -1536,7 +1568,8 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaSetKeys
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaCreateContext
   (JNIEnv *env, jclass cls) {
-    CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_RSA);
+    CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_RSA,
+        CRYPT_EAL_PKEY_UNKNOWN_OPERATE, g_providerAttr);
     if (ctx == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create RSA context");
         return 0;
@@ -2980,7 +3013,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaCreateC
 
     // create context
     int ret;
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_ML_DSA);
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_ML_DSA,
+        CRYPT_EAL_PKEY_SIGN_OPERATE, g_providerAttr);
     if (pkey == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create context");
         return 0;
@@ -3206,7 +3240,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemCreateC
     }
 
     int ret;
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_ML_KEM);
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_ML_KEM,
+        CRYPT_EAL_PKEY_KEM_OPERATE, g_providerAttr);
     if (pkey == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create MLKEM context");
         return 0;
@@ -3531,7 +3566,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaCreate
     }
 
     int ret;
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_SLH_DSA);
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_SLH_DSA,
+        CRYPT_EAL_PKEY_SIGN_OPERATE, g_providerAttr);
     if (pkey == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create SLHDSA context");
         return 0;
@@ -3976,7 +4012,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemCrea
     }
 
     int ret;
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_FRODOKEM);
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_FRODOKEM,
+        CRYPT_EAL_PKEY_KEM_OPERATE, g_providerAttr);
     if (pkey == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create FrodoKEM context");
         return 0;
@@ -4324,7 +4361,8 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceCrea
     }
 
     int ret;
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_MCELIECE);
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_ProviderPkeyNewCtx(g_libCtx, CRYPT_PKEY_MCELIECE,
+        CRYPT_EAL_PKEY_KEM_OPERATE, g_providerAttr);
     if (pkey == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create Classic McEliece context");
         return 0;
@@ -4594,4 +4632,124 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mceliec
     secureZeroFree(sharedKey, sharedKeyLen);
 
     return sharedKeyArray;
+}
+
+/*
+ * Provider management JNI functions
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_jce_provider_ProviderConfig_loadProviderNative
+  (JNIEnv *env, jclass cls, jstring jProviderPath, jstring jProviderName, jstring jAttrName) {
+    (void)cls;
+
+    const char *providerPath = (*env)->GetStringUTFChars(env, jProviderPath, NULL);
+    const char *providerName = (*env)->GetStringUTFChars(env, jProviderName, NULL);
+    const char *attrName = NULL;
+    if (jAttrName != NULL) {
+        attrName = (*env)->GetStringUTFChars(env, jAttrName, NULL);
+    }
+
+    if (providerPath == NULL || providerName == NULL || (jAttrName != NULL && attrName == NULL)) {
+        if (providerPath != NULL) (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+        if (providerName != NULL) (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+        if (attrName != NULL) (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to get string characters");
+        return;
+    }
+
+    const char *providerAttr = NULL;
+    if (attrName != NULL && attrName[0] != '\0') {
+        providerAttr = attrName;
+    }
+
+    char *providerAttrCopy = NULL;
+    if (providerAttr != NULL) {
+        providerAttrCopy = strdup(providerAttr);
+    } else {
+        size_t providerAttrLen = strlen("provider=") + strlen(providerName) + 1;
+        providerAttrCopy = malloc(providerAttrLen);
+        if (providerAttrCopy != NULL) {
+            snprintf(providerAttrCopy, providerAttrLen, "provider=%s", providerName);
+        }
+    }
+    if (providerAttrCopy == NULL) {
+        (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+        (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+        if (attrName != NULL) (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate provider state");
+        return;
+    }
+
+    CRYPT_EAL_LibCtx *newLibCtx = NULL;
+
+    pthread_mutex_lock(&g_init_mutex);
+
+    if (g_libCtx != NULL) {
+        pthread_mutex_unlock(&g_init_mutex);
+        free(providerAttrCopy);
+        (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+        (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+        if (attrName != NULL) (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+        throwException(env, ILLEGAL_STATE_EXCEPTION,
+            "An openHiTLS provider is already loaded; unload it before loading another provider");
+        return;
+    }
+
+    // Provider selection is process-wide and cannot be replaced while active.
+    newLibCtx = CRYPT_EAL_LibCtxNew();
+    if (newLibCtx == NULL) {
+        pthread_mutex_unlock(&g_init_mutex);
+        free(providerAttrCopy);
+        (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+        (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+        if (attrName != NULL) (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create library context");
+        return;
+    }
+
+    // Set provider search path
+    int32_t ret = CRYPT_EAL_ProviderSetLoadPath(newLibCtx, providerPath);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_LibCtxFree(newLibCtx);
+        pthread_mutex_unlock(&g_init_mutex);
+        free(providerAttrCopy);
+        (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+        (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+        if (attrName != NULL) (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set provider load path", ret);
+        return;
+    }
+
+    ret = CRYPT_EAL_ProviderLoad(newLibCtx, BSL_SAL_LIB_FMT_LIBSO, providerName, NULL, NULL);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_LibCtxFree(newLibCtx);
+        pthread_mutex_unlock(&g_init_mutex);
+        free(providerAttrCopy);
+        (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+        (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+        if (attrName != NULL) (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to load provider", ret);
+        return;
+    }
+
+    g_libCtx = newLibCtx;
+    g_providerAttr = providerAttrCopy;
+
+    if (attrName != NULL) {
+        (*env)->ReleaseStringUTFChars(env, jAttrName, attrName);
+    }
+
+    pthread_mutex_unlock(&g_init_mutex);
+
+    (*env)->ReleaseStringUTFChars(env, jProviderPath, providerPath);
+    (*env)->ReleaseStringUTFChars(env, jProviderName, providerName);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_jce_provider_ProviderConfig_unloadProviderNative
+  (JNIEnv *env, jclass cls) {
+    (void)env;
+    (void)cls;
+
+    pthread_mutex_lock(&g_init_mutex);
+    freeProviderStateNoLock();
+    pthread_mutex_unlock(&g_init_mutex);
 }

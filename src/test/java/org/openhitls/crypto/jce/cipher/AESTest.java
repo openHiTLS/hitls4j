@@ -18,6 +18,7 @@ import java.security.InvalidKeyException;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.util.Arrays;
+import java.util.Locale;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -49,6 +50,22 @@ public class AESTest extends BaseTest {
                 "000102030405060708090a0b0c0d0e0f",
                 "6bc1bee22e409f96e93d7e117393172a",
                 "7649abac8119b246cee98e9b12e9197d");
+    }
+
+    @Test
+    public void testCipherTransformationUsesLocaleIndependentCaseMapping() throws Exception {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(new Locale("tr", "TR"));
+            Cipher cipher = Cipher.getInstance("AES/ecb/NoPadding", HiTls4jProvider.PROVIDER_NAME);
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(hex("000102030405060708090a0b0c0d0e0f"), "AES"));
+
+            byte[] ciphertext = cipher.doFinal(hex("00112233445566778899aabbccddeeff"));
+
+            assertArrayEquals(hex("69c4e0d86a7b0430d8cdb78070b4c55a"), ciphertext);
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
     }
 
     @Test

@@ -9,6 +9,7 @@ import java.security.*;
 import java.nio.ByteBuffer;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
+import java.util.Locale;
 
 public abstract class AbstractBlockCipher extends CipherSpi {
     protected SymmetricCipherImpl symmetricCipher;
@@ -26,7 +27,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
 
     @Override
     protected void engineSetMode(String mode) throws NoSuchAlgorithmException {
-        mode = mode.toUpperCase();
+        mode = mode.toUpperCase(Locale.ROOT);
         if (!Arrays.asList(getSupportedModes()).contains(mode)) {
             throw new NoSuchAlgorithmException("Mode " + mode + " not supported");
         }
@@ -51,11 +52,12 @@ public abstract class AbstractBlockCipher extends CipherSpi {
 
     @Override
     protected void engineSetPadding(String padding) throws NoSuchPaddingException {
-        if (!padding.equals("NOPADDING") && !padding.equals("PKCS5PADDING") && !padding.equals("PKCS7PADDING") 
-            && !padding.equals("ZEROSPADDING") && !padding.equals("ISO7816PADDING") && !padding.equals("X923PADDING")) {
+        String paddingUpper = padding.toUpperCase(Locale.ROOT);
+        if (!paddingUpper.equals("NOPADDING") && !paddingUpper.equals("PKCS5PADDING") && !paddingUpper.equals("PKCS7PADDING")
+            && !paddingUpper.equals("ZEROSPADDING") && !paddingUpper.equals("ISO7816PADDING") && !paddingUpper.equals("X923PADDING")) {
             throw new NoSuchPaddingException("Padding " + padding + " not supported");
         }
-        this.padding = padding;
+        this.padding = paddingUpper;
     }
 
     @Override
@@ -74,7 +76,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
 
         // For block cipher modes (ECB, CBC)
         if (opmode == Cipher.ENCRYPT_MODE) {
-            if (padding.equals("NOPADDING")) {
+            if ("NOPADDING".equalsIgnoreCase(padding)) {
                 // For NoPadding, input must be multiple of block size
                 if (inputLen % blockSize != 0) {
                     throw new IllegalArgumentException("Input length must be multiple of " + blockSize + " for NoPadding");
@@ -87,7 +89,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
                 return ((inputLen + blockSize) / blockSize) * blockSize;
             }
         } else { // Cipher.DECRYPT_MODE
-            if (padding.equals("NOPADDING")) {
+            if ("NOPADDING".equalsIgnoreCase(padding)) {
                 // For NoPadding, output size equals input size
                 if (inputLen % blockSize != 0) {
                     throw new IllegalArgumentException("Input length must be multiple of " + blockSize + " for NoPadding");
@@ -361,7 +363,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
              mode.equals("GCM") || mode.equals("XTS"))) {
             throw new IllegalArgumentException("Stream cipher modes and authenticated encryption must use NOPADDING");
         }
-        switch (padding.toUpperCase()) {
+        switch (padding.toUpperCase(Locale.ROOT)) {
             case "NOPADDING":
                 return SymmetricCipherImpl.PADDING_NONE;
             case "ZEROSPADDING":

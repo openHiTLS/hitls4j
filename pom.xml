@@ -28,6 +28,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <openhitls.root></openhitls.root>
         <openhitls.lib.dir>${openhitls.root}/build</openhitls.lib.dir>
+        <openhitls.include.dir>${openhitls.root}/include</openhitls.include.dir>
         <openhitls.build.include.dir>${openhitls.root}/build/include</openhitls.build.include.dir>
     </properties>
 
@@ -72,13 +73,13 @@
                                             <available file="${openhitls.root}" type="dir"/>
                                         </not>
                                         <not>
-                                            <available file="${openhitls.root}/include" type="dir"/>
+                                            <available file="${openhitls.include.dir}" type="dir"/>
                                         </not>
                                         <not>
-                                            <available file="${openhitls.root}/include/bsl" type="dir"/>
+                                            <available file="${openhitls.include.dir}/bsl" type="dir"/>
                                         </not>
                                         <not>
-                                            <available file="${openhitls.root}/include/crypto" type="dir"/>
+                                            <available file="${openhitls.include.dir}/crypto" type="dir"/>
                                         </not>
                                         <not>
                                             <available file="${openhitls.lib.dir}" type="dir"/>
@@ -86,7 +87,7 @@
                                     </or>
                                 </condition>
                             </fail>
-                            <fail message="OpenHiTLS build output '${openhitls.lib.dir}' must contain libhitls_bsl.so, libhitls_crypto.so, libhitls_auth.so, libhitls_pki.so, and libhitls_tls.so.">
+                            <fail message="OpenHiTLS build output '${openhitls.lib.dir}' must contain libhitls_bsl.so, libhitls_crypto.so, libhitls_pki.so, and libhitls_tls.so.">
                                 <condition>
                                     <or>
                                         <not>
@@ -94,9 +95,6 @@
                                         </not>
                                         <not>
                                             <available file="${openhitls.lib.dir}/libhitls_crypto.so" type="file"/>
-                                        </not>
-                                        <not>
-                                            <available file="${openhitls.lib.dir}/libhitls_auth.so" type="file"/>
                                         </not>
                                         <not>
                                             <available file="${openhitls.lib.dir}/libhitls_pki.so" type="file"/>
@@ -121,9 +119,9 @@
                                 <arg value="-I${java.home}/include"/>
                                 <arg value="-I${java.home}/include/linux"/>
                                 <arg value="-I${basedir}/src/main/native"/>
-                                <arg value="-I${openhitls.root}/include"/>
-                                <arg value="-I${openhitls.root}/include/bsl"/>
-                                <arg value="-I${openhitls.root}/include/crypto"/>
+                                <arg value="-I${openhitls.include.dir}"/>
+                                <arg value="-I${openhitls.include.dir}/bsl"/>
+                                <arg value="-I${openhitls.include.dir}/crypto"/>
                                 <arg value="-I${openhitls.build.include.dir}"/>
                                 <arg value="${basedir}/src/main/native/crypto_native_jni.c"/>
                                 <arg value="-o"/>

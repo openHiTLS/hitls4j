@@ -41,6 +41,10 @@ public final class HiTls4jProvider extends Provider {
 
     public HiTls4jProvider() {
         super(PROVIDER_NAME, VERSION, INFO);
+        registerAlgorithms();
+    }
+
+    private void registerAlgorithms() {
 
         // Register symmetric ciphers
         put("Cipher.SM4", SM4CipherImpl.class.getName());
