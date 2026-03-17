@@ -11,13 +11,10 @@
 #include <crypto/crypt_eal_cipher.h>
 #include <crypto/crypt_eal_mac.h>
 #include <crypto/crypt_eal_md.h>
-#include <crypto/crypt_errno.h>
 #include <crypto/crypt_eal_rand.h>
 #include <crypto/crypt_params_key.h>
 #include <bsl/bsl_sal.h>
 #include <bsl/bsl_err.h>
-#include <bsl/bsl_err.h>
-#include <bsl/bsl_sal.h>
 #include <pthread.h>
 #include <org_openhitls_crypto_core_CryptoNative.h>
 
@@ -33,6 +30,13 @@ static const char* OUT_OF_MEMORY_ERROR = "java/lang/OutOfMemoryError";
 
 static void *StdMalloc(uint32_t len) {
     return malloc((size_t)len);
+}
+
+static void secureZeroFree(void *ptr, size_t len) {
+    if (ptr != NULL) {
+        memset(ptr, 0, len);
+        free(ptr);
+    }
 }
 
 static void throwException(JNIEnv *env, const char *exceptionClass, const char *message) {
@@ -361,6 +365,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacFin
     }
 
     (*env)->SetByteArrayRegion(env, macArray, 0, outLen, (jbyte *)mac);
+    memset(mac, 0, outLen);
     free(mac);
 
     return macArray;
@@ -442,7 +447,15 @@ static int getMdId(int hashAlg) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaCreateContext
   (JNIEnv *env, jclass cls, jstring jcurveName) {
+    if (jcurveName == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Curve name cannot be null");
+        return 0;
+    }
     const char *curveName = (*env)->GetStringUTFChars(env, jcurveName, NULL);
+    if (curveName == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get curve name string");
+        return 0;
+    }
     int curveId = getEcCurveId(curveName);
     (*env)->ReleaseStringUTFChars(env, jcurveName, curveName);
 
@@ -633,7 +646,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsa
     ret = CRYPT_EAL_PkeyGetPrv(pkey, &privKey);
     if (ret != CRYPT_SUCCESS) {
         free(pubKey.key.eccPub.data);
-        free(privKey.key.eccPrv.data);
+        secureZeroFree(privKey.key.eccPrv.data, privKey.key.eccPrv.len);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get private key", ret);
         return NULL;
     }
@@ -643,7 +656,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsa
     jbyteArray privKeyArray = (*env)->NewByteArray(env, privKey.key.eccPrv.len);
     if (pubKeyArray == NULL || privKeyArray == NULL) {
         free(pubKey.key.eccPub.data);
-        free(privKey.key.eccPrv.data);
+        secureZeroFree(privKey.key.eccPrv.data, privKey.key.eccPrv.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create key arrays");
         return NULL;
     }
@@ -655,7 +668,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsa
     jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, pubKeyArray), NULL);
     if (result == NULL) {
         free(pubKey.key.eccPub.data);
-        free(privKey.key.eccPrv.data);
+        secureZeroFree(privKey.key.eccPrv.data, privKey.key.eccPrv.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
         return NULL;
     }
@@ -664,7 +677,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsa
     (*env)->SetObjectArrayElement(env, result, 1, privKeyArray);
 
     free(pubKey.key.eccPub.data);
-    free(privKey.key.eccPrv.data);
+    secureZeroFree(privKey.key.eccPrv.data, privKey.key.eccPrv.len);
 
     return result;
 }
@@ -1022,8 +1035,7 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCiph
 
     int result = CRYPT_EAL_CipherSetPadding(ctx, paddingType);
     if (result != CRYPT_SUCCESS) {
-        char errMsg[256];
-        throwException(env, ILLEGAL_STATE_EXCEPTION, errMsg);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set padding", result);
         return;
     }
 }
@@ -1228,7 +1240,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaGe
     ret = CRYPT_EAL_PkeyGetPrv(ctx, &privKey);
     if (ret != CRYPT_SUCCESS) {
         free(pubKey.key.dsaPub.data);
-        free(privKey.key.dsaPrv.data);
+        secureZeroFree(privKey.key.dsaPrv.data, privKey.key.dsaPrv.len);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get DSA private key", ret);
         return NULL;
     }
@@ -1239,7 +1251,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaGe
     
     if (pubKeyArray == NULL || privKeyArray == NULL) {
         free(pubKey.key.dsaPub.data);
-        free(privKey.key.dsaPrv.data);
+        secureZeroFree(privKey.key.dsaPrv.data, privKey.key.dsaPrv.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create key arrays");
         return NULL;
     }
@@ -1251,7 +1263,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaGe
     jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, pubKeyArray), NULL);
     if (result == NULL) {
         free(pubKey.key.dsaPub.data);
-        free(privKey.key.dsaPrv.data);
+        secureZeroFree(privKey.key.dsaPrv.data, privKey.key.dsaPrv.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
         return NULL;
     }
@@ -1260,7 +1272,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaGe
     (*env)->SetObjectArrayElement(env, result, 1, privKeyArray);
 
     free(pubKey.key.dsaPub.data);
-    free(privKey.key.dsaPrv.data);
+    secureZeroFree(privKey.key.dsaPrv.data, privKey.key.dsaPrv.len);
 
     return result;
 }
@@ -1592,8 +1604,8 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
     if (ret != CRYPT_SUCCESS) {
         free(pubKey.key.rsaPub.n);
         free(pubKey.key.rsaPub.e);
-        free(privKey.key.rsaPrv.d);
-        free(privKey.key.rsaPrv.n);
+        secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
+        secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get RSA private key", ret);
         return NULL;
     }
@@ -1604,8 +1616,8 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
     if (pubKeyArray == NULL || privKeyArray == NULL) {
         free(pubKey.key.rsaPub.n);
         free(pubKey.key.rsaPub.e);
-        free(privKey.key.rsaPrv.d);
-        free(privKey.key.rsaPrv.n);
+        secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
+        secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create key arrays");
         return NULL;
     }
@@ -1618,8 +1630,8 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
     if (result == NULL) {
         free(pubKey.key.rsaPub.n);
         free(pubKey.key.rsaPub.e);
-        free(privKey.key.rsaPrv.d);
-        free(privKey.key.rsaPrv.n);
+        secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
+        secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
         return NULL;
     }
@@ -1629,8 +1641,8 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
 
     free(pubKey.key.rsaPub.n);
     free(pubKey.key.rsaPub.e);
-    free(privKey.key.rsaPrv.d);
-    free(privKey.key.rsaPrv.n);
+    secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
+    secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
 
     return result;
 }
@@ -2301,7 +2313,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsa
     ret = CRYPT_EAL_PkeyGetPrv(pkey, &priKey);
     if (ret != CRYPT_SUCCESS) {
         free(pubKey.key.mldsaPub.data);
-        free(priKey.key.mldsaPrv.data);
+        secureZeroFree(priKey.key.mldsaPrv.data, priKey.key.mldsaPrv.len);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get private key", ret);
         return NULL;
     }
@@ -2311,7 +2323,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsa
     jbyteArray priKeyArray = (*env)->NewByteArray(env, priKey.key.mldsaPrv.len);
     if (pubKeyArray == NULL || priKeyArray == NULL) {
         free(pubKey.key.mldsaPub.data);
-        free(priKey.key.mldsaPrv.data);
+        secureZeroFree(priKey.key.mldsaPrv.data, priKey.key.mldsaPrv.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create key arrays");
         return NULL;
     }
@@ -2322,7 +2334,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsa
     jobjectArray keyPair = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, pubKeyArray), NULL);
     if (keyPair == NULL) {
         free(pubKey.key.mldsaPub.data);
-        free(priKey.key.mldsaPrv.data);
+        secureZeroFree(priKey.key.mldsaPrv.data, priKey.key.mldsaPrv.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
         return NULL;
     }
@@ -2331,14 +2343,22 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsa
     (*env)->SetObjectArrayElement(env, keyPair, 1, priKeyArray);
 
     free(pubKey.key.mldsaPub.data);
-    free(priKey.key.mldsaPrv.data);
+    secureZeroFree(priKey.key.mldsaPrv.data, priKey.key.mldsaPrv.len);
 
     return keyPair;
 }
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaCreateContext
   (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    if (jparameterSet == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Parameter set cannot be null");
+        return 0;
+    }
     const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get parameter set string");
+        return 0;
+    }
     int paramId = getMlDsaParamId(parameterSet);
     (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
     if (paramId == -1) {
@@ -2568,7 +2588,15 @@ static int getMlKemParamId(const char *parameterSet) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemCreateContext
   (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    if (jparameterSet == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Parameter set cannot be null");
+        return 0;
+    }
     const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get parameter set string");
+        return 0;
+    }
     int paramId = getMlKemParamId(parameterSet);
     (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
     if (paramId == -1) {
@@ -2658,7 +2686,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     ret = CRYPT_EAL_PkeyGetPrv(pkey, &privKey);
     if (ret != CRYPT_SUCCESS) {
         free(pubKey.key.kemEk.data);
-        free(privKey.key.kemDk.data);
+        secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get private key", ret);
         return NULL;
     }
@@ -2668,7 +2696,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     jbyteArray privateKeyArray = (*env)->NewByteArray(env, privKey.key.kemDk.len);
     if (publicKeyArray == NULL || privateKeyArray == NULL) {
         free(pubKey.key.kemEk.data);
-        free(privKey.key.kemDk.data);
+        secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for public key or private key");
         return NULL;
     }
@@ -2676,7 +2704,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     (*env)->SetByteArrayRegion(env, privateKeyArray, 0, privKey.key.kemDk.len, (jbyte *)privKey.key.kemDk.data);
 
     free(pubKey.key.kemEk.data);
-    free(privKey.key.kemDk.data);
+    secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
 
     // Create byte arrays for keyPair
     jobjectArray keyPair = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, publicKeyArray), NULL);
@@ -2768,7 +2796,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     ret = CRYPT_EAL_PkeyEncaps(pkey, ciphertext, &ciphertextLen, sharedKey, &sharedKeyLen);
     if (ret != CRYPT_SUCCESS) {
         free(ciphertext);
-        free(sharedKey);
+        secureZeroFree(sharedKey, sharedKeyLen);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encapsulate", ret);
         return NULL;
     }
@@ -2778,7 +2806,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     jbyteArray sharedKeyArray = (*env)->NewByteArray(env, sharedKeyLen);
     if (ciphertextArray == NULL || sharedKeyArray == NULL) {
         free(ciphertext);
-        free(sharedKey);
+        secureZeroFree(sharedKey, sharedKeyLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for encapsulation result");
         return NULL;
     }
@@ -2786,7 +2814,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkem
     (*env)->SetByteArrayRegion(env, sharedKeyArray, 0, sharedKeyLen, (jbyte *)sharedKey);
 
     free(ciphertext);
-    free(sharedKey);
+    secureZeroFree(sharedKey, sharedKeyLen);
 
     // Create byte arrays for result and return
     jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, ciphertextArray), NULL);
@@ -2831,7 +2859,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemDe
     ret = CRYPT_EAL_PkeyDecaps(pkey, (const uint8_t *)ciphertext, (uint32_t)ciphertextLen, sharedKey, &sharedKeyLen);
     (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
     if (ret != CRYPT_SUCCESS) {
-        free(sharedKey);
+        secureZeroFree(sharedKey, sharedKeyLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to decapsulate");
         return NULL;
     }
@@ -2839,12 +2867,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mlkemDe
     // Create byte arrays for shared key and return
     jbyteArray sharedKeyArray = (*env)->NewByteArray(env, sharedKeyLen);
     if (sharedKeyArray == NULL) {
-        free(sharedKey);
+        secureZeroFree(sharedKey, sharedKeyLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte array for shared key");
         return NULL;
     }
     (*env)->SetByteArrayRegion(env, sharedKeyArray, 0, sharedKeyLen, (jbyte *)sharedKey);
-    free(sharedKey);
+    secureZeroFree(sharedKey, sharedKeyLen);
 
     return sharedKeyArray;
 }
@@ -2885,7 +2913,15 @@ static int getSlhDsaParamId(const char *parameterSet) {
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaCreateContext
   (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    if (jparameterSet == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Parameter set cannot be null");
+        return 0;
+    }
     const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get parameter set string");
+        return 0;
+    }
     int paramId = getSlhDsaParamId(parameterSet);
     (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
     if (paramId == -1) {
@@ -2974,10 +3010,10 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhds
     if (ret != CRYPT_SUCCESS) {
         free(pubKey.key.slhDsaPub.seed);
         free(pubKey.key.slhDsaPub.root);
-        free(privKey.key.slhDsaPrv.seed);
-        free(privKey.key.slhDsaPrv.prf);
-        free(privKey.key.slhDsaPrv.pub.seed);
-        free(privKey.key.slhDsaPrv.pub.root);
+        secureZeroFree(privKey.key.slhDsaPrv.seed, n);
+        secureZeroFree(privKey.key.slhDsaPrv.prf, n);
+        secureZeroFree(privKey.key.slhDsaPrv.pub.seed, n);
+        secureZeroFree(privKey.key.slhDsaPrv.pub.root, n);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get SLHDSA private key", ret);
         return NULL;
     }
@@ -2988,10 +3024,10 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhds
     if (publicKeyArray == NULL || privateKeyArray == NULL) {
         free(pubKey.key.slhDsaPub.seed);
         free(pubKey.key.slhDsaPub.root);
-        free(privKey.key.slhDsaPrv.seed);
-        free(privKey.key.slhDsaPrv.prf);
-        free(privKey.key.slhDsaPrv.pub.seed);
-        free(privKey.key.slhDsaPrv.pub.root);  
+        secureZeroFree(privKey.key.slhDsaPrv.seed, n);
+        secureZeroFree(privKey.key.slhDsaPrv.prf, n);
+        secureZeroFree(privKey.key.slhDsaPrv.pub.seed, n);
+        secureZeroFree(privKey.key.slhDsaPrv.pub.root, n);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte array for SLHDSA public key");
         return NULL;
     }
@@ -3007,10 +3043,10 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhds
 
     free(pubKey.key.slhDsaPub.seed);
     free(pubKey.key.slhDsaPub.root);
-    free(privKey.key.slhDsaPrv.seed);
-    free(privKey.key.slhDsaPrv.prf);
-    free(privKey.key.slhDsaPrv.pub.seed);
-    free(privKey.key.slhDsaPrv.pub.root);
+    secureZeroFree(privKey.key.slhDsaPrv.seed, n);
+    secureZeroFree(privKey.key.slhDsaPrv.prf, n);
+    secureZeroFree(privKey.key.slhDsaPrv.pub.seed, n);
+    secureZeroFree(privKey.key.slhDsaPrv.pub.root, n);
 
     // create byte array for keyPair
     jobjectArray keyPair = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, publicKeyArray), NULL);
@@ -3083,10 +3119,10 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetKeys
         privKey.key.slhDsaPrv.pub.len = privKeyLen / 4;
 
         ret = CRYPT_EAL_PkeySetPrv(pkey, &privKey);
-        free(privKey.key.slhDsaPrv.seed);
-        free(privKey.key.slhDsaPrv.prf);
-        free(privKey.key.slhDsaPrv.pub.seed);
-        free(privKey.key.slhDsaPrv.pub.root);
+        secureZeroFree(privKey.key.slhDsaPrv.seed, privKeyLen / 4);
+        secureZeroFree(privKey.key.slhDsaPrv.prf, privKeyLen / 4);
+        secureZeroFree(privKey.key.slhDsaPrv.pub.seed, privKeyLen / 4);
+        secureZeroFree(privKey.key.slhDsaPrv.pub.root, privKeyLen / 4);
         if (ret != CRYPT_SUCCESS) {
             throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA private key", ret);
             return;
@@ -3279,4 +3315,682 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetAddi
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA additionalRandomness", ret);
     }
     return;
+}
+
+// ==================== FrodoKEM ====================
+
+static int getFrodoKemParamId(const char *parameterSet) {
+    if (strcmp(parameterSet, "FrodoKEM-640-SHAKE") == 0) {
+        return CRYPT_KEM_TYPE_FRODOKEM_640_SHAKE;
+    } else if (strcmp(parameterSet, "FrodoKEM-640-AES") == 0) {
+        return CRYPT_KEM_TYPE_FRODOKEM_640_AES;
+    } else if (strcmp(parameterSet, "FrodoKEM-976-SHAKE") == 0) {
+        return CRYPT_KEM_TYPE_FRODOKEM_976_SHAKE;
+    } else if (strcmp(parameterSet, "FrodoKEM-976-AES") == 0) {
+        return CRYPT_KEM_TYPE_FRODOKEM_976_AES;
+    } else if (strcmp(parameterSet, "FrodoKEM-1344-SHAKE") == 0) {
+        return CRYPT_KEM_TYPE_FRODOKEM_1344_SHAKE;
+    } else if (strcmp(parameterSet, "FrodoKEM-1344-AES") == 0) {
+        return CRYPT_KEM_TYPE_FRODOKEM_1344_AES;
+    } else {
+        return -1;
+    }
+}
+
+static void getFrodoKemKeySizes(int paramId, int *publicKeySize, int *privateKeySize) {
+    switch (paramId) {
+        case CRYPT_KEM_TYPE_FRODOKEM_640_SHAKE:
+        case CRYPT_KEM_TYPE_FRODOKEM_640_AES:
+            *publicKeySize = 9616;
+            *privateKeySize = 19888;
+            break;
+        case CRYPT_KEM_TYPE_FRODOKEM_976_SHAKE:
+        case CRYPT_KEM_TYPE_FRODOKEM_976_AES:
+            *publicKeySize = 15632;
+            *privateKeySize = 31296;
+            break;
+        case CRYPT_KEM_TYPE_FRODOKEM_1344_SHAKE:
+        case CRYPT_KEM_TYPE_FRODOKEM_1344_AES:
+            *publicKeySize = 21520;
+            *privateKeySize = 43088;
+            break;
+        default:
+            *publicKeySize = 0;
+            *privateKeySize = 0;
+            break;
+    }
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemCreateContext
+  (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        return 0;
+    }
+    int paramId = getFrodoKemParamId(parameterSet);
+    (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
+    if (paramId == -1) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported FrodoKEM parameter set");
+        return 0;
+    }
+
+    int ret;
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_FRODOKEM);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create FrodoKEM context");
+        return 0;
+    }
+
+    ret = CRYPT_EAL_PkeySetParaById(pkey, paramId);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set FrodoKEM parameter set", ret);
+        return 0;
+    }
+
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef, jstring jparameterSet) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+    int publicKeySize;
+    int privateKeySize;
+    const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        return NULL;
+    }
+    int paramId = getFrodoKemParamId(parameterSet);
+    (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
+
+    getFrodoKemKeySizes(paramId, &publicKeySize, &privateKeySize);
+    if (publicKeySize == 0) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported FrodoKEM parameter set");
+        return NULL;
+    }
+
+    // generate keyPair
+    ret = CRYPT_EAL_PkeyGen(pkey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate key pair", ret);
+        return NULL;
+    }
+
+    // get public key
+    CRYPT_EAL_PkeyPub pubKey;
+    memset(&pubKey, 0, sizeof(CRYPT_EAL_PkeyPub));
+    pubKey.id = CRYPT_PKEY_FRODOKEM;
+    pubKey.key.kemEk.data = malloc(publicKeySize);
+    pubKey.key.kemEk.len = publicKeySize;
+    if (pubKey.key.kemEk.data == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for public key");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeyGetPub(pkey, &pubKey);
+    if (ret != CRYPT_SUCCESS) {
+        free(pubKey.key.kemEk.data);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get public key", ret);
+        return NULL;
+    }
+
+    // get private key
+    CRYPT_EAL_PkeyPrv privKey;
+    memset(&privKey, 0, sizeof(CRYPT_EAL_PkeyPrv));
+    privKey.id = CRYPT_PKEY_FRODOKEM;
+    privKey.key.kemDk.data = malloc(privateKeySize);
+    privKey.key.kemDk.len = privateKeySize;
+    if (privKey.key.kemDk.data == NULL) {
+        free(pubKey.key.kemEk.data);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for private key");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeyGetPrv(pkey, &privKey);
+    if (ret != CRYPT_SUCCESS) {
+        free(pubKey.key.kemEk.data);
+        secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get private key", ret);
+        return NULL;
+    }
+
+    // Create byte arrays for public and private keys
+    jbyteArray publicKeyArray = (*env)->NewByteArray(env, pubKey.key.kemEk.len);
+    jbyteArray privateKeyArray = (*env)->NewByteArray(env, privKey.key.kemDk.len);
+    if (publicKeyArray == NULL || privateKeyArray == NULL) {
+        free(pubKey.key.kemEk.data);
+        secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for keys");
+        return NULL;
+    }
+    (*env)->SetByteArrayRegion(env, publicKeyArray, 0, pubKey.key.kemEk.len, (jbyte *)pubKey.key.kemEk.data);
+    (*env)->SetByteArrayRegion(env, privateKeyArray, 0, privKey.key.kemDk.len, (jbyte *)privKey.key.kemDk.data);
+
+    free(pubKey.key.kemEk.data);
+    secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
+
+    // Create byte arrays for keyPair
+    jobjectArray keyPair = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, publicKeyArray), NULL);
+    if (keyPair == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for keyPair");
+        return NULL;
+    }
+    (*env)->SetObjectArrayElement(env, keyPair, 0, publicKeyArray);
+    (*env)->SetObjectArrayElement(env, keyPair, 1, privateKeyArray);
+
+    return keyPair;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemSetKeys
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray jencapKey, jbyteArray jdecapKey) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    if (jencapKey != NULL) {
+        CRYPT_EAL_PkeyPub pubKey;
+        memset(&pubKey, 0, sizeof(CRYPT_EAL_PkeyPub));
+        pubKey.id = CRYPT_PKEY_FRODOKEM;
+        pubKey.key.kemEk.data = (uint8_t *)(*env)->GetByteArrayElements(env, jencapKey, NULL);
+        if (pubKey.key.kemEk.data == NULL) {
+            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get encapsulate key data");
+            return;
+        }
+        pubKey.key.kemEk.len = (*env)->GetArrayLength(env, jencapKey);
+
+        ret = CRYPT_EAL_PkeySetPub(pkey, &pubKey);
+        (*env)->ReleaseByteArrayElements(env, jencapKey, (jbyte *)pubKey.key.kemEk.data, JNI_ABORT);
+        if (ret != CRYPT_SUCCESS) {
+            throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set encapsulate key", ret);
+            return;
+        }
+    }
+
+    if (jdecapKey != NULL) {
+        CRYPT_EAL_PkeyPrv privKey;
+        memset(&privKey, 0, sizeof(CRYPT_EAL_PkeyPrv));
+        privKey.id = CRYPT_PKEY_FRODOKEM;
+        privKey.key.kemDk.data = (uint8_t *)(*env)->GetByteArrayElements(env, jdecapKey, NULL);
+        if (privKey.key.kemDk.data == NULL) {
+            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get decapsulate key data");
+            return;
+        }
+        privKey.key.kemDk.len = (*env)->GetArrayLength(env, jdecapKey);
+
+        ret = CRYPT_EAL_PkeySetPrv(pkey, &privKey);
+        (*env)->ReleaseByteArrayElements(env, jdecapKey, (jbyte *)privKey.key.kemDk.data, JNI_ABORT);
+        if (ret != CRYPT_SUCCESS) {
+            throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set decapsulate key", ret);
+            return;
+        }
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+    }
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemEncapsulate
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    // Get ciphertext and shared key lengths
+    uint32_t ciphertextLen;
+    uint32_t sharedKeyLen;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_CIPHERTEXT_LEN, &ciphertextLen, sizeof(ciphertextLen));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get ciphertext length", ret);
+        return NULL;
+    }
+
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SHARED_KEY_LEN, &sharedKeyLen, sizeof(sharedKeyLen));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get shared key length", ret);
+        return NULL;
+    }
+
+    // Create ciphertext and shared key buffers
+    uint8_t *ciphertext = malloc(ciphertextLen);
+    uint8_t *sharedKey = malloc(sharedKeyLen);
+    if (ciphertext == NULL || sharedKey == NULL) {
+        if (ciphertext) free(ciphertext);
+        if (sharedKey) free(sharedKey);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for encapsulation");
+        return NULL;
+    }
+
+    // Encapsulation
+    ret = CRYPT_EAL_PkeyEncaps(pkey, ciphertext, &ciphertextLen, sharedKey, &sharedKeyLen);
+    if (ret != CRYPT_SUCCESS) {
+        free(ciphertext);
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encapsulate", ret);
+        return NULL;
+    }
+
+    // Create byte arrays for ciphertext and sharedKey
+    jbyteArray ciphertextArray = (*env)->NewByteArray(env, ciphertextLen);
+    jbyteArray sharedKeyArray = (*env)->NewByteArray(env, sharedKeyLen);
+    if (ciphertextArray == NULL || sharedKeyArray == NULL) {
+        free(ciphertext);
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for encapsulation result");
+        return NULL;
+    }
+    (*env)->SetByteArrayRegion(env, ciphertextArray, 0, ciphertextLen, (jbyte *)ciphertext);
+    (*env)->SetByteArrayRegion(env, sharedKeyArray, 0, sharedKeyLen, (jbyte *)sharedKey);
+
+    free(ciphertext);
+    secureZeroFree(sharedKey, sharedKeyLen);
+
+    // Create result array
+    jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, ciphertextArray), NULL);
+    if (result == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
+        return NULL;
+    }
+    (*env)->SetObjectArrayElement(env, result, 0, ciphertextArray);
+    (*env)->SetObjectArrayElement(env, result, 1, sharedKeyArray);
+
+    return result;
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemDecapsulate
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray jciphertext) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    jbyte *ciphertext = (*env)->GetByteArrayElements(env, jciphertext, NULL);
+    jsize ciphertextLen = (*env)->GetArrayLength(env, jciphertext);
+    if (ciphertext == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get ciphertext bytes");
+        return NULL;
+    }
+
+    // Get shared key length and allocate memory for shared key
+    uint32_t sharedKeyLen;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SHARED_KEY_LEN, &sharedKeyLen, sizeof(sharedKeyLen));
+    if (ret != CRYPT_SUCCESS) {
+        (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get shared key length", ret);
+        return NULL;
+    }
+    uint8_t *sharedKey = malloc(sharedKeyLen);
+    if (sharedKey == NULL) {
+        (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for shared key");
+        return NULL;
+    }
+
+    // Decapsulation
+    ret = CRYPT_EAL_PkeyDecaps(pkey, (const uint8_t *)ciphertext, (uint32_t)ciphertextLen, sharedKey, &sharedKeyLen);
+    (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to decapsulate");
+        return NULL;
+    }
+
+    // Create byte array for shared key and return
+    jbyteArray sharedKeyArray = (*env)->NewByteArray(env, sharedKeyLen);
+    if (sharedKeyArray == NULL) {
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte array for shared key");
+        return NULL;
+    }
+    (*env)->SetByteArrayRegion(env, sharedKeyArray, 0, sharedKeyLen, (jbyte *)sharedKey);
+    secureZeroFree(sharedKey, sharedKeyLen);
+
+    return sharedKeyArray;
+}
+
+// ==================== Classic McEliece ====================
+
+static int getMcElieceParamId(const char *parameterSet) {
+    if (strcmp(parameterSet, "McEliece-6688128") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6688128;
+    } else if (strcmp(parameterSet, "McEliece-6688128f") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6688128_F;
+    } else if (strcmp(parameterSet, "McEliece-6688128pc") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6688128_PC;
+    } else if (strcmp(parameterSet, "McEliece-6688128pcf") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6688128_PCF;
+    } else if (strcmp(parameterSet, "McEliece-6960119") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6960119;
+    } else if (strcmp(parameterSet, "McEliece-6960119f") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6960119_F;
+    } else if (strcmp(parameterSet, "McEliece-6960119pc") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6960119_PC;
+    } else if (strcmp(parameterSet, "McEliece-6960119pcf") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_6960119_PCF;
+    } else if (strcmp(parameterSet, "McEliece-8192128") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_8192128;
+    } else if (strcmp(parameterSet, "McEliece-8192128f") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_8192128_F;
+    } else if (strcmp(parameterSet, "McEliece-8192128pc") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_8192128_PC;
+    } else if (strcmp(parameterSet, "McEliece-8192128pcf") == 0) {
+        return CRYPT_KEM_TYPE_MCELIECE_8192128_PCF;
+    } else {
+        return -1;
+    }
+}
+
+static void getMcElieceKeySizes(int paramId, int *publicKeySize, int *privateKeySize) {
+    switch (paramId) {
+        case CRYPT_KEM_TYPE_MCELIECE_6688128:
+        case CRYPT_KEM_TYPE_MCELIECE_6688128_F:
+        case CRYPT_KEM_TYPE_MCELIECE_6688128_PC:
+        case CRYPT_KEM_TYPE_MCELIECE_6688128_PCF:
+            *publicKeySize = 1044992;
+            *privateKeySize = 13932;
+            break;
+        case CRYPT_KEM_TYPE_MCELIECE_6960119:
+        case CRYPT_KEM_TYPE_MCELIECE_6960119_F:
+        case CRYPT_KEM_TYPE_MCELIECE_6960119_PC:
+        case CRYPT_KEM_TYPE_MCELIECE_6960119_PCF:
+            *publicKeySize = 1047319;
+            *privateKeySize = 13948;
+            break;
+        case CRYPT_KEM_TYPE_MCELIECE_8192128:
+        case CRYPT_KEM_TYPE_MCELIECE_8192128_F:
+        case CRYPT_KEM_TYPE_MCELIECE_8192128_PC:
+        case CRYPT_KEM_TYPE_MCELIECE_8192128_PCF:
+            *publicKeySize = 1357824;
+            *privateKeySize = 14120;
+            break;
+        default:
+            *publicKeySize = 0;
+            *privateKeySize = 0;
+            break;
+    }
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceCreateContext
+  (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        return 0;
+    }
+    int paramId = getMcElieceParamId(parameterSet);
+    (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
+    if (paramId == -1) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported Classic McEliece parameter set");
+        return 0;
+    }
+
+    int ret;
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_MCELIECE);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create Classic McEliece context");
+        return 0;
+    }
+
+    ret = CRYPT_EAL_PkeySetParaById(pkey, paramId);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set Classic McEliece parameter set", ret);
+        return 0;
+    }
+
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef, jstring jparameterSet) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+    int publicKeySize;
+    int privateKeySize;
+    const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        return NULL;
+    }
+    int paramId = getMcElieceParamId(parameterSet);
+    (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
+
+    getMcElieceKeySizes(paramId, &publicKeySize, &privateKeySize);
+    if (publicKeySize == 0) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported Classic McEliece parameter set");
+        return NULL;
+    }
+
+    // generate keyPair
+    ret = CRYPT_EAL_PkeyGen(pkey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate key pair", ret);
+        return NULL;
+    }
+
+    // get public key
+    CRYPT_EAL_PkeyPub pubKey;
+    memset(&pubKey, 0, sizeof(CRYPT_EAL_PkeyPub));
+    pubKey.id = CRYPT_PKEY_MCELIECE;
+    pubKey.key.kemEk.data = malloc(publicKeySize);
+    pubKey.key.kemEk.len = publicKeySize;
+    if (pubKey.key.kemEk.data == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for public key");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeyGetPub(pkey, &pubKey);
+    if (ret != CRYPT_SUCCESS) {
+        free(pubKey.key.kemEk.data);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get public key", ret);
+        return NULL;
+    }
+
+    // get private key
+    CRYPT_EAL_PkeyPrv privKey;
+    memset(&privKey, 0, sizeof(CRYPT_EAL_PkeyPrv));
+    privKey.id = CRYPT_PKEY_MCELIECE;
+    privKey.key.kemDk.data = malloc(privateKeySize);
+    privKey.key.kemDk.len = privateKeySize;
+    if (privKey.key.kemDk.data == NULL) {
+        free(pubKey.key.kemEk.data);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for private key");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeyGetPrv(pkey, &privKey);
+    if (ret != CRYPT_SUCCESS) {
+        free(pubKey.key.kemEk.data);
+        secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get private key", ret);
+        return NULL;
+    }
+
+    // Create byte arrays for public and private keys
+    jbyteArray publicKeyArray = (*env)->NewByteArray(env, pubKey.key.kemEk.len);
+    jbyteArray privateKeyArray = (*env)->NewByteArray(env, privKey.key.kemDk.len);
+    if (publicKeyArray == NULL || privateKeyArray == NULL) {
+        free(pubKey.key.kemEk.data);
+        secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for keys");
+        return NULL;
+    }
+    (*env)->SetByteArrayRegion(env, publicKeyArray, 0, pubKey.key.kemEk.len, (jbyte *)pubKey.key.kemEk.data);
+    (*env)->SetByteArrayRegion(env, privateKeyArray, 0, privKey.key.kemDk.len, (jbyte *)privKey.key.kemDk.data);
+
+    free(pubKey.key.kemEk.data);
+    secureZeroFree(privKey.key.kemDk.data, privKey.key.kemDk.len);
+
+    // Create byte arrays for keyPair
+    jobjectArray keyPair = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, publicKeyArray), NULL);
+    if (keyPair == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for keyPair");
+        return NULL;
+    }
+    (*env)->SetObjectArrayElement(env, keyPair, 0, publicKeyArray);
+    (*env)->SetObjectArrayElement(env, keyPair, 1, privateKeyArray);
+
+    return keyPair;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceSetKeys
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray jencapKey, jbyteArray jdecapKey) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    if (jencapKey != NULL) {
+        CRYPT_EAL_PkeyPub pubKey;
+        memset(&pubKey, 0, sizeof(CRYPT_EAL_PkeyPub));
+        pubKey.id = CRYPT_PKEY_MCELIECE;
+        pubKey.key.kemEk.data = (uint8_t *)(*env)->GetByteArrayElements(env, jencapKey, NULL);
+        if (pubKey.key.kemEk.data == NULL) {
+            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get encapsulate key data");
+            return;
+        }
+        pubKey.key.kemEk.len = (*env)->GetArrayLength(env, jencapKey);
+
+        ret = CRYPT_EAL_PkeySetPub(pkey, &pubKey);
+        (*env)->ReleaseByteArrayElements(env, jencapKey, (jbyte *)pubKey.key.kemEk.data, JNI_ABORT);
+        if (ret != CRYPT_SUCCESS) {
+            throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set encapsulate key", ret);
+            return;
+        }
+    }
+
+    if (jdecapKey != NULL) {
+        CRYPT_EAL_PkeyPrv privKey;
+        memset(&privKey, 0, sizeof(CRYPT_EAL_PkeyPrv));
+        privKey.id = CRYPT_PKEY_MCELIECE;
+        privKey.key.kemDk.data = (uint8_t *)(*env)->GetByteArrayElements(env, jdecapKey, NULL);
+        if (privKey.key.kemDk.data == NULL) {
+            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get decapsulate key data");
+            return;
+        }
+        privKey.key.kemDk.len = (*env)->GetArrayLength(env, jdecapKey);
+
+        ret = CRYPT_EAL_PkeySetPrv(pkey, &privKey);
+        (*env)->ReleaseByteArrayElements(env, jdecapKey, (jbyte *)privKey.key.kemDk.data, JNI_ABORT);
+        if (ret != CRYPT_SUCCESS) {
+            throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set decapsulate key", ret);
+            return;
+        }
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+    }
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceEncapsulate
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    // Get ciphertext and shared key lengths
+    uint32_t ciphertextLen;
+    uint32_t sharedKeyLen;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_CIPHERTEXT_LEN, &ciphertextLen, sizeof(ciphertextLen));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get ciphertext length", ret);
+        return NULL;
+    }
+
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SHARED_KEY_LEN, &sharedKeyLen, sizeof(sharedKeyLen));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get shared key length", ret);
+        return NULL;
+    }
+
+    // Create ciphertext and shared key buffers
+    uint8_t *ciphertext = malloc(ciphertextLen);
+    uint8_t *sharedKey = malloc(sharedKeyLen);
+    if (ciphertext == NULL || sharedKey == NULL) {
+        if (ciphertext) free(ciphertext);
+        if (sharedKey) free(sharedKey);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for encapsulation");
+        return NULL;
+    }
+
+    // Encapsulation
+    ret = CRYPT_EAL_PkeyEncaps(pkey, ciphertext, &ciphertextLen, sharedKey, &sharedKeyLen);
+    if (ret != CRYPT_SUCCESS) {
+        free(ciphertext);
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encapsulate", ret);
+        return NULL;
+    }
+
+    // Create byte arrays for ciphertext and sharedKey
+    jbyteArray ciphertextArray = (*env)->NewByteArray(env, ciphertextLen);
+    jbyteArray sharedKeyArray = (*env)->NewByteArray(env, sharedKeyLen);
+    if (ciphertextArray == NULL || sharedKeyArray == NULL) {
+        free(ciphertext);
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte arrays for encapsulation result");
+        return NULL;
+    }
+    (*env)->SetByteArrayRegion(env, ciphertextArray, 0, ciphertextLen, (jbyte *)ciphertext);
+    (*env)->SetByteArrayRegion(env, sharedKeyArray, 0, sharedKeyLen, (jbyte *)sharedKey);
+
+    free(ciphertext);
+    secureZeroFree(sharedKey, sharedKeyLen);
+
+    // Create result array
+    jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, ciphertextArray), NULL);
+    if (result == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
+        return NULL;
+    }
+    (*env)->SetObjectArrayElement(env, result, 0, ciphertextArray);
+    (*env)->SetObjectArrayElement(env, result, 1, sharedKeyArray);
+
+    return result;
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceDecapsulate
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray jciphertext) {
+    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
+    int ret;
+
+    jbyte *ciphertext = (*env)->GetByteArrayElements(env, jciphertext, NULL);
+    jsize ciphertextLen = (*env)->GetArrayLength(env, jciphertext);
+    if (ciphertext == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get ciphertext bytes");
+        return NULL;
+    }
+
+    // Get shared key length and allocate memory for shared key
+    uint32_t sharedKeyLen;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SHARED_KEY_LEN, &sharedKeyLen, sizeof(sharedKeyLen));
+    if (ret != CRYPT_SUCCESS) {
+        (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get shared key length", ret);
+        return NULL;
+    }
+    uint8_t *sharedKey = malloc(sharedKeyLen);
+    if (sharedKey == NULL) {
+        (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for shared key");
+        return NULL;
+    }
+
+    // Decapsulation
+    ret = CRYPT_EAL_PkeyDecaps(pkey, (const uint8_t *)ciphertext, (uint32_t)ciphertextLen, sharedKey, &sharedKeyLen);
+    (*env)->ReleaseByteArrayElements(env, jciphertext, ciphertext, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to decapsulate");
+        return NULL;
+    }
+
+    // Create byte array for shared key and return
+    jbyteArray sharedKeyArray = (*env)->NewByteArray(env, sharedKeyLen);
+    if (sharedKeyArray == NULL) {
+        secureZeroFree(sharedKey, sharedKeyLen);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create byte array for shared key");
+        return NULL;
+    }
+    (*env)->SetByteArrayRegion(env, sharedKeyArray, 0, sharedKeyLen, (jbyte *)sharedKey);
+    secureZeroFree(sharedKey, sharedKeyLen);
+
+    return sharedKeyArray;
 }

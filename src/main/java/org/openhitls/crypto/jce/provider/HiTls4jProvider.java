@@ -229,5 +229,15 @@ public final class HiTls4jProvider extends Provider {
         put("Signature.SHAKE128withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHAKE128withSLHDSA");
         put("Signature.SHAKE256withSLHDSA", "org.openhitls.crypto.jce.signer.SLHDSASigner$SHAKE256withSLHDSA");
         put("KeyFactory.SLH-DSA", "org.openhitls.crypto.jce.key.factory.SLHDSAKeyFactory");
+
+        put("KeyPairGenerator.FrodoKEM", "org.openhitls.crypto.jce.key.generator.FrodoKEMKeyPairGenerator");
+        put("AlgorithmParameters.FrodoKEM", "org.openhitls.crypto.jce.param.FrodoKEMParameters");
+        put("KeyFactory.FrodoKEM", "org.openhitls.crypto.jce.key.factory.FrodoKEMKeyFactory");
+        put("KeyAgreement.FrodoKEM", "org.openhitls.crypto.jce.keyagreement.FrodoKEMKeyAgreement");
+
+        put("KeyPairGenerator.Classic-McEliece", "org.openhitls.crypto.jce.key.generator.McElieceKeyPairGenerator");
+        put("AlgorithmParameters.Classic-McEliece", "org.openhitls.crypto.jce.param.McElieceParameters");
+        put("KeyFactory.Classic-McEliece", "org.openhitls.crypto.jce.key.factory.McElieceKeyFactory");
+        put("KeyAgreement.Classic-McEliece", "org.openhitls.crypto.jce.keyagreement.McElieceKeyAgreement");
     }
 }

@@ -23,7 +23,7 @@ public class MLDSAPublicKeyImpl implements MLDSAPublicKey {
 
     @Override
     public byte[] getPublicData() {
-        return publicKeyData != null ? publicKeyData.clone() : null;
+        return encoded != null ? encoded.clone() : null;
     }
 
     @Override
@@ -33,7 +33,7 @@ public class MLDSAPublicKeyImpl implements MLDSAPublicKey {
 
     @Override
     public String getFormat() {
-        return "X.509";
+        return "RAW";
     }
 
     @Override

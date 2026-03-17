@@ -38,12 +38,12 @@ public class SLHDSAPrivateKeyImpl implements SLHDSAPrivateKey{
 
     @Override
     public String getFormat() {
-        return "PKCS#8";
+        return "RAW";
     }
 
     @Override
     public byte[] getPrivateData() {
-        return privateKeyData != null ? privateKeyData.clone() : null;
+        return encoded != null ? encoded.clone() : null;
     }
     
 }

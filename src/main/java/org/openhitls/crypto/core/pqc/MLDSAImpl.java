@@ -38,9 +38,12 @@ public class MLDSAImpl extends NativeResource {
     }
 
     void setKeys(byte[] publicKey, byte[] privateKey) {
+        if (publicKey == null && privateKey == null) {
+            throw new IllegalArgumentException("At least one key must be non-null");
+        }
+        CryptoNative.mldsaSetKeys(nativeContext, publicKey, privateKey);
         this.publicKey = publicKey;
         this.privateKey = privateKey;
-        CryptoNative.mldsaSetKeys(nativeContext, publicKey, privateKey);
     }
 
     public byte[] getPublicKey() {

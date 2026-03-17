@@ -2,10 +2,10 @@ package org.openhitls.crypto.jce.key;
 
 import java.security.Key;
 
-public class MLKEMCiphertextKey implements Key {
+public class FrodoKEMCiphertextKey implements Key {
     private final byte[] ciphertext;
 
-    public MLKEMCiphertextKey(byte[] ciphertext) {
+    public FrodoKEMCiphertextKey(byte[] ciphertext) {
         if (ciphertext == null) {
             throw new IllegalArgumentException("Ciphertext cannot be null");
         }
@@ -14,7 +14,7 @@ public class MLKEMCiphertextKey implements Key {
 
     @Override
     public String getAlgorithm() {
-        return "ML-KEM";
+        return "FrodoKEM";
     }
 
     @Override

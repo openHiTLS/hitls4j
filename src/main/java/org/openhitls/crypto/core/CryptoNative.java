@@ -99,4 +99,20 @@ public class CryptoNative {
     public static native void slhdsaSetPreHash(long nativeRef, boolean preHash);
     public static native void slhdsaSetCxt(long nativeRef, byte[] context);
     public static native void slhdsaSetAdditionalRandomness(long nativeRef, byte[] additionalRandomness);
+
+    // FrodoKEM native methods
+    public static native long frodoKemCreateContext(String parameterSet);
+    public static native byte[][] frodoKemGenerateKeyPair(long nativeRef, String parameterSet);
+    public static native void frodoKemSetKeys(long nativeRef, byte[] ek, byte[] dk);
+    public static native void frodoKemFreeContext(long contextPtr);
+    public static native byte[][] frodoKemEncapsulate(long nativeRef);
+    public static native byte[] frodoKemDecapsulate(long nativeRef, byte[] encryptedData);
+
+    // Classic McEliece native methods
+    public static native long mcelieceCreateContext(String parameterSet);
+    public static native byte[][] mcelieceGenerateKeyPair(long nativeRef, String parameterSet);
+    public static native void mcelieceSetKeys(long nativeRef, byte[] ek, byte[] dk);
+    public static native void mcelieceFreeContext(long contextPtr);
+    public static native byte[][] mcelieceEncapsulate(long nativeRef);
+    public static native byte[] mcelieceDecapsulate(long nativeRef, byte[] encryptedData);
 }
