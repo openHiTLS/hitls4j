@@ -26,11 +26,8 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
             MLKEMPrivateKeySpec mlkemSpec = (MLKEMPrivateKeySpec) keySpec;
             return new MLKEMPrivateKeyImpl(mlkemSpec.getParams(), mlkemSpec.getEncoded());
         } else if (keySpec instanceof PKCS8EncodedKeySpec) {
-            try {
-                return new MLKEMPrivateKeyImpl(((PKCS8EncodedKeySpec) keySpec).getEncoded());
-            } catch (Exception e) {
-                throw new InvalidKeySpecException("Invalid PKCS8EncodedKeySpec for MLKEM private key", e);
-            }
+            throw new InvalidKeySpecException(
+                    "PKCS#8 encoding is not supported for ML-KEM keys; use MLKEMPrivateKeySpec");
         }
         throw new InvalidKeySpecException("Unsupported key specification: " + keySpec.getClass().getName());
     }
@@ -41,11 +38,8 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
             MLKEMPublicKeySpec mlkemSpec = (MLKEMPublicKeySpec) keySpec;
             return new MLKEMPublicKeyImpl(mlkemSpec.getParams(), mlkemSpec.getEncoded());
         } else if (keySpec instanceof X509EncodedKeySpec) {
-            try {
-                return new MLKEMPublicKeyImpl(((X509EncodedKeySpec) keySpec).getEncoded());
-            } catch (Exception e) {
-                throw new InvalidKeySpecException("Invalid X509EncodedKeySpec for ML-KEM public key", e);
-            }
+            throw new InvalidKeySpecException(
+                    "X.509 encoding is not supported for ML-KEM keys; use MLKEMPublicKeySpec");
         }
         throw new InvalidKeySpecException("Unsupported key specification: " + keySpec.getClass().getName());
     }
@@ -59,10 +53,6 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
         if (key instanceof MLKEMPublicKeyImpl) {
             MLKEMPublicKeyImpl mlkemKey = (MLKEMPublicKeyImpl) key;
 
-            if (keySpec.isAssignableFrom(X509EncodedKeySpec.class)) {
-                return keySpec.cast(new X509EncodedKeySpec(key.getEncoded()));
-            }
-
             if (keySpec.isAssignableFrom(MLKEMPublicKeySpec.class)) {
                 MLKEMParameterSpec params = mlkemKey.getParams();
                 if (params == null) {
@@ -72,10 +62,6 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
             }
         } else if (key instanceof MLKEMPrivateKeyImpl) {
             MLKEMPrivateKeyImpl mlkemKey = (MLKEMPrivateKeyImpl) key;
-
-            if (keySpec.isAssignableFrom(PKCS8EncodedKeySpec.class)) {
-                return keySpec.cast(new PKCS8EncodedKeySpec(key.getEncoded()));
-            }
 
             if (keySpec.isAssignableFrom(MLKEMPrivateKeySpec.class)) {
                 MLKEMParameterSpec params = mlkemKey.getParams();

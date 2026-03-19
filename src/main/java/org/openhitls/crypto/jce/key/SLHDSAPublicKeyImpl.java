@@ -38,12 +38,12 @@ public class SLHDSAPublicKeyImpl implements SLHDSAPublicKey{
 
     @Override
     public String getFormat() {
-        return "X.509";
+        return "RAW";
     }
 
     @Override
     public byte[] getPublicData() {
-        return publicKeyData != null ? publicKeyData.clone() : null;
+        return encoded != null ? encoded.clone() : null;
     }
     
 }

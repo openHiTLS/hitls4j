@@ -38,9 +38,12 @@ public class SLHDSAImpl extends NativeResource {
     }
 
     void setKeys(byte[] publicKey, byte[] privateKey) {
+        if (publicKey == null && privateKey == null) {
+            throw new IllegalArgumentException("At least one key must be non-null");
+        }
+        CryptoNative.slhdsaSetKeys(nativeContext, publicKey, privateKey);
         this.publicKey = publicKey;
         this.privateKey = privateKey;
-        CryptoNative.slhdsaSetKeys(nativeContext, publicKey, privateKey);
     }
 
     public byte[] getPublicKey() {

@@ -23,9 +23,12 @@ public class MLKEMImpl extends NativeResource {
     }
 
     void setKeys(byte[] encapKey, byte[] decapKey) {
+        if (encapKey == null && decapKey == null) {
+            throw new IllegalArgumentException("At least one key must be non-null");
+        }
+        CryptoNative.mlkemSetKeys(nativeContext, encapKey, decapKey);
         this.encapKey = encapKey;
         this.decapKey = decapKey;
-        CryptoNative.mlkemSetKeys(nativeContext, encapKey, decapKey);
     }
 
     private static long initContext(String parameterSet) {

@@ -51,9 +51,17 @@ public class MLKEMKeyAgreement extends KeyAgreementSpi {
                 throw new InvalidKeyException("Unsupported ML-KEM parameter set: " + parameterSet);
             }
         } else if (mlkemPrivateKey != null) {
-            parameterSet = mlkemPrivateKey.getParams().getName();
+            MLKEMParameterSpec keyParams = mlkemPrivateKey.getParams();
+            if (keyParams == null) {
+                throw new InvalidKeyException("ML-KEM key is missing parameter metadata");
+            }
+            parameterSet = keyParams.getName();
         } else if (mlkemPublicKey != null) {
-            parameterSet = mlkemPublicKey.getParams().getName();
+            MLKEMParameterSpec keyParams = mlkemPublicKey.getParams();
+            if (keyParams == null) {
+                throw new InvalidKeyException("ML-KEM key is missing parameter metadata");
+            }
+            parameterSet = keyParams.getName();
         } else {
             throw new InvalidKeyException("ML-KEM parameter set not specified");
         }
@@ -111,10 +119,11 @@ public class MLKEMKeyAgreement extends KeyAgreementSpi {
     }
 
     @Override
-    protected int engineGenerateSecret(byte[] sharedSecret, int offset) throws InvalidParameterException {
+    protected int engineGenerateSecret(byte[] sharedSecret, int offset)
+            throws IllegalStateException, javax.crypto.ShortBufferException {
         byte[] secret = engineGenerateSecret();
-        if (sharedSecret.length - offset < secret.length) {
-            throw new IllegalStateException("Insufficient space in sharedSecret array");
+        if (offset < 0 || sharedSecret.length - offset < secret.length) {
+            throw new javax.crypto.ShortBufferException("Invalid offset or insufficient space in sharedSecret array");
         }
         System.arraycopy(secret, 0, sharedSecret, offset, secret.length);
         return secret.length;

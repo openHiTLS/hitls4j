@@ -10,20 +10,20 @@ public class MLKEMPublicKeyImpl implements MLKEMPublicKey {
     private final byte[] publicKeyData; // raw public data
 
     public MLKEMPublicKeyImpl(byte[] encoded) {
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.params = null;
         this.publicKeyData = null;
     }
 
     public MLKEMPublicKeyImpl(MLKEMParameterSpec params, byte[] encoded) {
         this.params = params;
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.publicKeyData = null;
     }
 
     @Override
     public byte[] getPublicData() {
-        return null; // not support yet
+        return encoded != null ? encoded.clone() : null;
     }
 
     @Override
@@ -33,7 +33,7 @@ public class MLKEMPublicKeyImpl implements MLKEMPublicKey {
 
     @Override
     public String getFormat() {
-        return "X.509";
+        return "RAW";
     }
 
     @Override

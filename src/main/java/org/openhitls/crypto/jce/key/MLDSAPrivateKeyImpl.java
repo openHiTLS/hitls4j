@@ -23,7 +23,7 @@ public class MLDSAPrivateKeyImpl implements MLDSAPrivateKey {
 
     @Override
     public byte[] getPrivateData() {
-        return privateKeyData != null ? privateKeyData.clone() : null;
+        return encoded != null ? encoded.clone() : null;
     }
 
     @Override
@@ -33,7 +33,7 @@ public class MLDSAPrivateKeyImpl implements MLDSAPrivateKey {
 
     @Override
     public String getFormat() {
-        return "PKCS#8";
+        return "RAW";
     }
 
     @Override

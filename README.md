@@ -304,6 +304,10 @@ byte[] receiverSharedKey = kaReceiver.generateSecret();
 - `ML-DSA-44`, `ML-DSA-65`, `ML-DSA-87`
 - `SLH-DSA-SHA2-128s`, `SLH-DSA-SHA2-128f`, `SLH-DSA-SHA2-192s`, `SLH-DSA-SHA2-192f`, `SLH-DSA-SHA2-256s`, `SLH-DSA-SHA2-256f`
 - `SLH-DSA-SHAKE-128s`, `SLH-DSA-SHAKE-128f`, `SLH-DSA-SHAKE-192s`, `SLH-DSA-SHAKE-192f`, `SLH-DSA-SHAKE-256s`, `SLH-DSA-SHAKE-256f`
+- `FrodoKEM-640-SHAKE`, `FrodoKEM-640-AES`, `FrodoKEM-976-SHAKE`, `FrodoKEM-976-AES`, `FrodoKEM-1344-SHAKE`, `FrodoKEM-1344-AES`
+- `McEliece-6688128`, `McEliece-6688128f`, `McEliece-6688128pc`, `McEliece-6688128pcf`
+- `McEliece-6960119`, `McEliece-6960119f`, `McEliece-6960119pc`, `McEliece-6960119pcf`
+- `McEliece-8192128`, `McEliece-8192128f`, `McEliece-8192128pc`, `McEliece-8192128pcf`
 
 ## License
 

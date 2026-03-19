@@ -10,20 +10,20 @@ public class MLKEMPrivateKeyImpl implements MLKEMPrivateKey {
     private final byte[] privateKeyData; // raw private data
 
     public MLKEMPrivateKeyImpl(byte[] encoded) {
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.params = null;
         this.privateKeyData = null;
     }
 
     public MLKEMPrivateKeyImpl(MLKEMParameterSpec params, byte[] encoded) {
         this.params = params;
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.privateKeyData = null;
     }
 
     @Override
     public byte[] getPrivateData() {
-        return null; // not support yet
+        return encoded != null ? encoded.clone() : null;
     }
 
     @Override
@@ -33,7 +33,7 @@ public class MLKEMPrivateKeyImpl implements MLKEMPrivateKey {
 
     @Override
     public String getFormat() {
-        return "PKCS#8";
+        return "RAW";
     }
 
     @Override
