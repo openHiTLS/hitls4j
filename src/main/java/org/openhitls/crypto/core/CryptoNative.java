@@ -76,7 +76,6 @@ public class CryptoNative {
     public static native boolean mldsaVerify(long nativeRef, byte[] data, byte[] signature, int hashAlgorithm);
     public static native void mldsaSetDeterministic(long nativeRef, boolean deterministic);
     public static native void mldsaSetPreHash(long nativeRef, boolean preHash);
-    public static native void mldsaSetEncodeFlag(long nativeRef, boolean encodeFlag);
     public static native void mldsaSetExternalMuFlag(long nativeRef, boolean externalMuFlag);
     public static native void mldsaSetCxt(long nativeRef, byte[] context);
 

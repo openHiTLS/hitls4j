@@ -441,14 +441,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSetPreHa
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
- * Method:    mldsaSetEncodeFlag
- * Signature: (JZ)V
- */
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSetEncodeFlag
-  (JNIEnv *, jclass, jlong, jboolean);
-
-/*
- * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    mldsaSetExternalMuFlag
  * Signature: (JZ)V
  */

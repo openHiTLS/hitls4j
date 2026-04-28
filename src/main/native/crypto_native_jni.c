@@ -74,17 +74,17 @@ static void randInit() {
 // Initialize BSL and random number generator
 static void initializeCrypto() {
     if (g_initialized) return;
-    
+
     pthread_mutex_lock(&g_init_mutex);
     if (!g_initialized) {
         // Initialize BSL
-        static uint32_t bslOnceControl = 0;
+        static BSL_SAL_OnceControl bslOnceControl = BSL_SAL_ONCE_INIT;
         BSL_SAL_ThreadRunOnce(&bslOnceControl, bslInit);
-        
+
         // Initialize random number generator
-        static uint32_t randOnceControl = 0;
+        static BSL_SAL_OnceControl randOnceControl = BSL_SAL_ONCE_INIT;
         BSL_SAL_ThreadRunOnce(&randOnceControl, randInit);
-        
+
         // Test random number generation
         uint8_t testBuf[32];
         int ret = CRYPT_EAL_Randbytes(testBuf, sizeof(testBuf));
@@ -92,7 +92,7 @@ static void initializeCrypto() {
             // Log error but don't throw exception here
             fprintf(stderr, "Warning: Failed to initialize random number generator: %d\n", ret);
         }
-        
+
         g_initialized = 1;
     }
     pthread_mutex_unlock(&g_init_mutex);
@@ -103,11 +103,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     // Initialize crypto when the library is loaded
     initializeCrypto();
     return JNI_VERSION_1_8;
-}
-
-static void initBSL() {
-    static uint32_t onceControl = 0;
-    BSL_SAL_ThreadRunOnce(&onceControl, bslInit);
 }
 
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestInit
@@ -2541,17 +2536,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSetDeter
     }
 }
 
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSetEncodeFlag
-  (JNIEnv *env, jclass cls, jlong nativeRef, jboolean encodeFlag) {
-    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
-    uint32_t val = encodeFlag ? 1 : 0;
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_MLDSA_ENCODE_FLAG, &val, sizeof(val));
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set MLDSA encode flag", ret);
-    }
-    return;
-}
-
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSetExternalMuFlag
   (JNIEnv *env, jclass cls, jlong nativeRef, jboolean externalMuFlag) {
     CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
@@ -2567,7 +2551,7 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mldsaSetPreHa
   (JNIEnv *env, jclass cls, jlong nativeRef, jboolean preHash) {
     CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
     uint32_t val = preHash ? 1 : 0;
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_PREHASH_FLAG, &val, sizeof(val));
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_PREHASH_MODE, &val, sizeof(val));
     if (ret != CRYPT_SUCCESS) {
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set MLDSA prehash flag", ret);
     }
@@ -3263,7 +3247,7 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetPreH
   (JNIEnv *env, jclass cls, jlong nativeRef, jboolean preHash) {
     CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
     uint32_t val = preHash ? 1 : 0;
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_PREHASH_FLAG, &val, sizeof(val));
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_PREHASH_MODE, &val, sizeof(val));
     if (ret != CRYPT_SUCCESS) {
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set MLDSA preHash flag", ret);
     }
