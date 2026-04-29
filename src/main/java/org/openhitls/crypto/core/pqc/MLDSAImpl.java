@@ -69,10 +69,12 @@ public class MLDSAImpl extends NativeResource {
         if (privateKey == null) {
             throw new IllegalStateException("Private key not initialized");
         }
+        if (signParams == null) {
+            throw new IllegalArgumentException("Signature parameters cannot be null");
+        }
         try { // set ML-DSA signature parameters
             CryptoNative.mldsaSetDeterministic(nativeContext, signParams.isDeterministic());
             CryptoNative.mldsaSetPreHash(nativeContext, signParams.isPreHash());
-            CryptoNative.mldsaSetEncodeFlag(nativeContext, signParams.isEncodeFlag());
             CryptoNative.mldsaSetExternalMuFlag(nativeContext, signParams.isExternalMuFlag());
             CryptoNative.mldsaSetCxt(nativeContext, signParams.getContext());
         } catch (Exception e) {
@@ -88,10 +90,12 @@ public class MLDSAImpl extends NativeResource {
         if (publicKey == null) {
             throw new IllegalArgumentException("publicKey not initialized");
         }
+        if (signParams == null) {
+            throw new IllegalArgumentException("Signature parameters cannot be null");
+        }
         try {
             CryptoNative.mldsaSetDeterministic(nativeContext, signParams.isDeterministic());
             CryptoNative.mldsaSetPreHash(nativeContext, signParams.isPreHash());
-            CryptoNative.mldsaSetEncodeFlag(nativeContext, signParams.isEncodeFlag());
             CryptoNative.mldsaSetExternalMuFlag(nativeContext, signParams.isExternalMuFlag());
             CryptoNative.mldsaSetCxt(nativeContext, signParams.getContext());
         } catch (Exception e) {

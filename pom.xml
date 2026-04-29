@@ -43,13 +43,18 @@
                     <configuration>
                         <target>
                             <mkdir dir="${project.build.directory}/native"/>
+                            <!-- Copy required native libraries from openhitls build directory -->
+                            <copy todir="${project.build.directory}/native" flatten="true">
+                                <fileset dir="${openhitls.root}/build" includes="libhitls_bsl.so,libhitls_crypto.so,libhitls_auth.so,libhitls_pki.so,libhitls_tls.so"/>
+                            </copy>
                             <!-- Compile JNI code -->
                             <exec executable="gcc" failonerror="true">
                                 <arg value="-c"/>
                                 <arg value="-fPIC"/>
                                 <arg value="-Wall"/>
-                                <arg value="-I${env.JAVA_HOME}/include"/>
-                                <arg value="-I${env.JAVA_HOME}/include/linux"/>
+                                <arg value="-Werror"/>
+                                <arg value="-I${java.home}/include"/>
+                                <arg value="-I${java.home}/include/linux"/>
                                 <arg value="-I${basedir}/src/main/native"/>
                                 <arg value="-I${openhitls.root}/include"/>
                                 <arg value="-I${openhitls.root}/include/bsl"/>
@@ -65,11 +70,11 @@
                                 <arg value="-o"/>
                                 <arg value="${project.build.directory}/native/libhitls_crypto_jni.so"/>
                                 <arg value="${project.build.directory}/native/crypto_native_jni.o"/>
-                                <arg value="-L${openhitls.root}/build"/>
+                                <arg value="-L${project.build.directory}/native"/>
                                 <arg value="-lhitls_crypto"/>
                                 <arg value="-lhitls_bsl"/>
-                                <arg value="-lboundscheck"/>
                                 <arg value="-Wl,-z,noexecstack"/>
+                                <arg value="-Wl,-rpath,$ORIGIN"/>
                             </exec>
                         </target>
                     </configuration>
