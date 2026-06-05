@@ -2,6 +2,7 @@ package org.openhitls.crypto.jce.pqc;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -15,6 +16,7 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 
 import javax.crypto.KeyAgreement;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.Test;
 import org.openhitls.crypto.BaseTest;
@@ -130,6 +132,43 @@ public class MLKEMTest extends BaseTest {
             byte[] receiverSharedKey2 = kaReceiver2.generateSecret();
 
             assertFalse("Shared secrets should be different with modified ciphertext", Arrays.equals(senderSharedKey, receiverSharedKey2));
+        }
+    }
+
+    @Test
+    public void testInvalidKeyAgreementUsage() throws Exception {
+        KeyAgreement keyAgreement = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        try {
+            keyAgreement.doPhase(null, true);
+            fail("Expected IllegalStateException before init");
+        } catch (IllegalStateException expected) {
+            // Expected.
+        }
+
+        try {
+            keyAgreement.init(new SecretKeySpec(new byte[16], "AES"));
+            fail("Expected InvalidKeyException for non-ML-KEM key");
+        } catch (java.security.InvalidKeyException expected) {
+            // Expected.
+        }
+
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLKEMGenParameterSpec("ML-KEM-512"), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+
+        keyAgreement.init(keyPair.getPublic());
+        try {
+            keyAgreement.generateSecret();
+            fail("Expected IllegalStateException before encapsulation phase");
+        } catch (IllegalStateException expected) {
+            // Expected.
+        }
+
+        try {
+            keyAgreement.doPhase(null, false);
+            fail("Expected IllegalStateException for non-final ML-KEM phase");
+        } catch (IllegalStateException expected) {
+            // Expected.
         }
     }
 }

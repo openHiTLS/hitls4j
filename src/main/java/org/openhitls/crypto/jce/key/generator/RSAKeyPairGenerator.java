@@ -11,8 +11,10 @@ import java.security.interfaces.RSAPrivateKey;
 import java.security.PublicKey;
 import java.security.PrivateKey;
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
+import org.openhitls.crypto.jce.key.RSAPrivateCrtKeyImpl;
 import org.openhitls.crypto.jce.key.RSAPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.RSAPublicKeyImpl;
+import org.openhitls.crypto.jce.key.RSAKeyUtil;
 import java.math.BigInteger;
 
 public class RSAKeyPairGenerator extends KeyPairGeneratorSpi {
@@ -41,6 +43,7 @@ public class RSAKeyPairGenerator extends KeyPairGeneratorSpi {
             throw new InvalidAlgorithmParameterException("RSAKeyGenParameterSpec required");
         }
         RSAKeyGenParameterSpec rsaParams = (RSAKeyGenParameterSpec) params;
+        validatePublicExponent(rsaParams.getPublicExponent());
         this.keysize = rsaParams.getKeysize();
         this.publicExponent = rsaParams.getPublicExponent();
         this.random = random;
@@ -53,14 +56,7 @@ public class RSAKeyPairGenerator extends KeyPairGeneratorSpi {
             RSAImpl rsa = new RSAImpl();
 
             // Set parameters
-            byte[] e = publicExponent.toByteArray();
-
-            // Remove leading zero if present (BigInteger's sign bit)
-            if (e.length > 1 && e[0] == 0) {
-                byte[] tmp = new byte[e.length - 1];
-                System.arraycopy(e, 1, tmp, 0, tmp.length);
-                e = tmp;
-            }
+            byte[] e = RSAKeyUtil.toUnsignedBytes(publicExponent);
 
             rsa.setParameters(e, keysize);
 
@@ -71,7 +67,10 @@ public class RSAKeyPairGenerator extends KeyPairGeneratorSpi {
 
             // Create JCE key objects
             RSAPublicKey publicKey = new RSAPublicKeyImpl(pubKeyBytes, publicExponent);
-            RSAPrivateKey privateKey = new RSAPrivateKeyImpl(privKeyBytes, pubKeyBytes);
+            RSAPrivateKey privateKey = keyPair.length >= 8
+                    ? new RSAPrivateCrtKeyImpl(privKeyBytes, pubKeyBytes, publicExponent,
+                            keyPair[3], keyPair[4], keyPair[5], keyPair[6], keyPair[7])
+                    : new RSAPrivateKeyImpl(privKeyBytes, pubKeyBytes, publicExponent);
 
             return new KeyPair(publicKey, privateKey);
         } catch (Exception ex) {
@@ -86,4 +85,10 @@ public class RSAKeyPairGenerator extends KeyPairGeneratorSpi {
         }
         return sb.toString();
     }
-} 
+
+    private static void validatePublicExponent(BigInteger publicExponent) throws InvalidAlgorithmParameterException {
+        if (publicExponent == null) {
+            throw new InvalidAlgorithmParameterException("RSA public exponent cannot be null");
+        }
+    }
+}

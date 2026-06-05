@@ -21,7 +21,7 @@ public class RSAImpl extends NativeResource {
 
     public RSAImpl(byte[] publicKey, byte[] privateKey) {
         super(CryptoNative.rsaCreateContext(), RSAImpl::freeNativeContext);
-        setKeys(publicKey, privateKey);
+        setKeys(publicKey, privateKey, null);
     }
 
     private static void freeNativeContext(long nativeContext) {
@@ -31,9 +31,13 @@ public class RSAImpl extends NativeResource {
     }
 
     public void setKeys(byte[] publicKey, byte[] privateKey) {
+        setKeys(publicKey, privateKey, null);
+    }
+
+    public void setKeys(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
         this.publicKey = publicKey != null ? publicKey.clone() : null;
         this.privateKey = privateKey != null ? privateKey.clone() : null;
-        CryptoNative.rsaSetKeys(nativeContext, publicKey, privateKey);
+        CryptoNative.rsaSetKeys(nativeContext, publicKey, privateKey, publicExponent);
     }
 
     public void setParameters(byte[] e, int keyBits) {

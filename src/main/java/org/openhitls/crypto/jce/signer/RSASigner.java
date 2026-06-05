@@ -1,5 +1,6 @@
 package org.openhitls.crypto.jce.signer;
 
+import java.math.BigInteger;
 import java.security.InvalidKeyException;
 import java.security.InvalidParameterException;
 import java.security.PrivateKey;
@@ -11,6 +12,7 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.AlgorithmParameterSpec;
 
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
+import org.openhitls.crypto.jce.key.RSAKeyUtil;
 
 public class RSASigner extends SignatureSpi {
     private final RSAImpl rsaImpl;
@@ -24,6 +26,11 @@ public class RSASigner extends SignatureSpi {
         this.digestAlgorithm = digestAlgorithm;
     }
 
+    protected RSASigner(String digestAlgorithm, RSAPadding.PSSParameterSpec pssParams) {
+        this(digestAlgorithm);
+        this.rsaImpl.setPSSParameters(pssParams);
+    }
+
     @Override
     protected void engineInitVerify(PublicKey publicKey) throws InvalidKeyException {
         if (!(publicKey instanceof RSAPublicKey)) {
@@ -31,15 +38,14 @@ public class RSASigner extends SignatureSpi {
         }
 
         RSAPublicKey rsaKey = (RSAPublicKey) publicKey;
-        byte[] modulus = rsaKey.getModulus().toByteArray();
-        // Remove leading zero if present
-        if (modulus[0] == 0) {
-            byte[] tmp = new byte[modulus.length - 1];
-            System.arraycopy(modulus, 1, tmp, 0, tmp.length);
-            modulus = tmp;
+        byte[] modulus = RSAKeyUtil.toUnsignedBytes(rsaKey.getModulus());
+        BigInteger exponent = RSAKeyUtil.getPublicExponent(rsaKey);
+        if (exponent == null) {
+            throw new InvalidKeyException("RSA public exponent cannot be null");
         }
+        byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(exponent);
 
-        rsaImpl.setKeys(modulus, null);
+        rsaImpl.setKeys(modulus, null, publicExponent);
         rsaImpl.setDigestAlgorithm(digestAlgorithm);
         isInitialized = true;
         forSigning = false;
@@ -52,22 +58,11 @@ public class RSASigner extends SignatureSpi {
         }
 
         RSAPrivateKey rsaKey = (RSAPrivateKey) privateKey;
-        byte[] modulus = rsaKey.getModulus().toByteArray();
-        byte[] privateExponent = rsaKey.getPrivateExponent().toByteArray();
+        byte[] modulus = RSAKeyUtil.toUnsignedBytes(rsaKey.getModulus());
+        byte[] privateExponent = RSAKeyUtil.toUnsignedBytes(rsaKey.getPrivateExponent());
+        byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(RSAKeyUtil.requirePublicExponent(rsaKey));
 
-        // Remove leading zeros if present
-        if (modulus[0] == 0) {
-            byte[] tmp = new byte[modulus.length - 1];
-            System.arraycopy(modulus, 1, tmp, 0, tmp.length);
-            modulus = tmp;
-        }
-        if (privateExponent[0] == 0) {
-            byte[] tmp = new byte[privateExponent.length - 1];
-            System.arraycopy(privateExponent, 1, tmp, 0, tmp.length);
-            privateExponent = tmp;
-        }
-
-        rsaImpl.setKeys(modulus, privateExponent);
+        rsaImpl.setKeys(modulus, privateExponent, publicExponent);
         rsaImpl.setDigestAlgorithm(digestAlgorithm);
         isInitialized = true;
         forSigning = true;
@@ -160,6 +155,12 @@ public class RSASigner extends SignatureSpi {
         }
     }
 
+    public static final class SHA1withRSA extends RSASigner {
+        public SHA1withRSA() {
+            super("SHA1");
+        }
+    }
+
     public static final class SHA256withRSA extends RSASigner {
         public SHA256withRSA() {
             super("SHA256");
@@ -185,52 +186,26 @@ public class RSASigner extends SignatureSpi {
     }
 
     public static final class SHA224withRSAPSS extends RSASigner {
-        private final RSAImpl rsaImpl;
-
         public SHA224withRSAPSS() {
-            super("SHA224");
-            this.rsaImpl = new RSAImpl();
-            this.rsaImpl.setPSSParameters(new RSAPadding.PSSParameterSpec("SHA224"));
+            super("SHA224", new RSAPadding.PSSParameterSpec("SHA224"));
         }
     }
 
     public static final class SHA256withRSAPSS extends RSASigner {
-        private final RSAImpl rsaImpl;
-
         public SHA256withRSAPSS() {
-            super("SHA256");
-            this.rsaImpl = new RSAImpl();
-            this.rsaImpl.setPSSParameters(new RSAPadding.PSSParameterSpec("SHA256"));
+            super("SHA256", new RSAPadding.PSSParameterSpec("SHA256"));
         }
     }
 
     public static final class SHA384withRSAPSS extends RSASigner {
-        private final RSAImpl rsaImpl;
-
         public SHA384withRSAPSS() {
-            super("SHA384");
-            this.rsaImpl = new RSAImpl();
-            this.rsaImpl.setPSSParameters(new RSAPadding.PSSParameterSpec("SHA384"));
+            super("SHA384", new RSAPadding.PSSParameterSpec("SHA384"));
         }
     }
 
     public static final class SHA512withRSAPSS extends RSASigner {
-        private final RSAImpl rsaImpl;
-
         public SHA512withRSAPSS() {
-            super("SHA512");
-            this.rsaImpl = new RSAImpl();
-            this.rsaImpl.setPSSParameters(new RSAPadding.PSSParameterSpec("SHA512"));
+            super("SHA512", new RSAPadding.PSSParameterSpec("SHA512"));
         }
     }
-
-    public static final class SM3withRSAPSS extends RSASigner {
-        private final RSAImpl rsaImpl;
-
-        public SM3withRSAPSS() {
-            super("SM3");
-            this.rsaImpl = new RSAImpl();
-            this.rsaImpl.setPSSParameters(new RSAPadding.PSSParameterSpec("SM3"));
-        }
-    }
-} 
+}

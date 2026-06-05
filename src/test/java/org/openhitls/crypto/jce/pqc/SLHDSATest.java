@@ -8,16 +8,21 @@ import org.openhitls.crypto.jce.spec.SLHDSAPublicKeySpec;
 import org.openhitls.crypto.jce.spec.SLHDSASignatureParameterSpec;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
+import java.security.SignatureException;
+import java.security.spec.ECGenParameterSpec;
 
 import org.junit.Test;
 
@@ -218,6 +223,62 @@ public class SLHDSATest extends BaseTest {
         verifier.update(data);
         boolean result = verifier.verify(signature);
         assertTrue(result);
+    }
+
+    @Test
+    public void testSLHDSARequiresInitialization() throws Exception {
+        Signature signature = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        byte[] data = "data".getBytes();
+
+        try {
+            signature.update(data);
+            fail("Expected SignatureException before init");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.sign();
+            fail("Expected SignatureException before initSign");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.verify(new byte[7856]);
+            fail("Expected SignatureException before initVerify");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+    }
+
+    @Test
+    public void testSLHDSARejectsWrongKeyAndParameterTypes() throws Exception {
+        KeyPairGenerator rsaKeyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
+        rsaKeyGen.initialize(2048);
+        KeyPair rsaKeyPair = rsaKeyGen.generateKeyPair();
+        Signature signature = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+
+        try {
+            signature.initSign(rsaKeyPair.getPrivate());
+            fail("Expected InvalidKeyException for RSA private key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.initVerify(rsaKeyPair.getPublic());
+            fail("Expected InvalidKeyException for RSA public key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.setParameter(new ECGenParameterSpec("secp256r1"));
+            fail("Expected InvalidAlgorithmParameterException for non-SLH-DSA params");
+        } catch (InvalidAlgorithmParameterException expected) {
+            // Expected.
+        }
     }
 
     /**

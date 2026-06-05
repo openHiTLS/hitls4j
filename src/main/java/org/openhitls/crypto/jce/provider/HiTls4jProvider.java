@@ -71,18 +71,29 @@ public final class HiTls4jProvider extends Provider {
 
         // RSA functionality
         put("KeyPairGenerator.RSA", "org.openhitls.crypto.jce.key.generator.RSAKeyPairGenerator");
+        put("KeyFactory.RSA", "org.openhitls.crypto.jce.key.factory.RSAKeyFactory");
+        put("Signature.SHA1withRSA", "org.openhitls.crypto.jce.signer.RSASigner$SHA1withRSA");
         put("Signature.SHA224withRSA", "org.openhitls.crypto.jce.signer.RSASigner$SHA224withRSA");
         put("Signature.SHA256withRSA", "org.openhitls.crypto.jce.signer.RSASigner$SHA256withRSA");
         put("Signature.SHA384withRSA", "org.openhitls.crypto.jce.signer.RSASigner$SHA384withRSA");
         put("Signature.SHA512withRSA", "org.openhitls.crypto.jce.signer.RSASigner$SHA512withRSA");
         put("Signature.SM3withRSA", "org.openhitls.crypto.jce.signer.RSASigner$SM3withRSA");
+        put("Alg.Alias.Signature.SHA1withRSAEncryption", "SHA1withRSA");
+        put("Alg.Alias.Signature.SHA224withRSAEncryption", "SHA224withRSA");
+        put("Alg.Alias.Signature.SHA256withRSAEncryption", "SHA256withRSA");
+        put("Alg.Alias.Signature.SHA384withRSAEncryption", "SHA384withRSA");
+        put("Alg.Alias.Signature.SHA512withRSAEncryption", "SHA512withRSA");
+        put("Alg.Alias.Signature.1.2.840.113549.1.1.5", "SHA1withRSA");
+        put("Alg.Alias.Signature.1.2.840.113549.1.1.14", "SHA224withRSA");
+        put("Alg.Alias.Signature.1.2.840.113549.1.1.11", "SHA256withRSA");
+        put("Alg.Alias.Signature.1.2.840.113549.1.1.12", "SHA384withRSA");
+        put("Alg.Alias.Signature.1.2.840.113549.1.1.13", "SHA512withRSA");
 
         // RSA PSS Signatures
         put("Signature.SHA224withRSA/PSS", "org.openhitls.crypto.jce.signer.RSASigner$SHA224withRSAPSS");
         put("Signature.SHA256withRSA/PSS", "org.openhitls.crypto.jce.signer.RSASigner$SHA256withRSAPSS");
         put("Signature.SHA384withRSA/PSS", "org.openhitls.crypto.jce.signer.RSASigner$SHA384withRSAPSS");
         put("Signature.SHA512withRSA/PSS", "org.openhitls.crypto.jce.signer.RSASigner$SHA512withRSAPSS");
-        put("Signature.SM3withRSA/PSS", "org.openhitls.crypto.jce.signer.RSASigner$SM3withRSAPSS");
 
         put("AlgorithmParameters.RSA", "org.openhitls.crypto.jce.param.RSAParameters");
 
