@@ -11,7 +11,9 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
+import java.security.SignatureException;
 import java.security.spec.DSAParameterSpec;
+import java.nio.charset.StandardCharsets;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 import java.security.Security;
 
@@ -141,5 +143,70 @@ public class DSATest {
 
             assertTrue("Signature verification failed on iteration " + i, verified);
         }
+    }
+
+    @Test
+    public void testDSARejectsTamperedSignatureAndData() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "Original DSA test data".getBytes(StandardCharsets.UTF_8);
+        byte[] signature = sign(keyPair.getPrivate(), data);
+
+        byte[] tamperedSignature = signature.clone();
+        tamperedSignature[0] ^= 0x01;
+        assertFalse("Tampered DSA signature should not verify",
+                verify(keyPair.getPublic(), data, tamperedSignature));
+
+        byte[] tamperedData = data.clone();
+        tamperedData[0] ^= 0x01;
+        assertFalse("DSA signature should not verify with tampered data",
+                verify(keyPair.getPublic(), tamperedData, signature));
+    }
+
+    @Test
+    public void testDSARequiresInitialization() throws Exception {
+        Signature signature = Signature.getInstance("DSA", HiTls4jProvider.PROVIDER_NAME);
+        byte[] data = "data".getBytes(StandardCharsets.UTF_8);
+
+        try {
+            signature.update(data);
+            fail("Expected SignatureException before init");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.sign();
+            fail("Expected SignatureException before initSign");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.verify(new byte[40]);
+            fail("Expected SignatureException before initVerify");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+    }
+
+    private static KeyPair generateKeyPair() throws Exception {
+        DSAParameterSpec paramSpec = new DSAParameterSpec(P, Q, G);
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("DSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(paramSpec, new SecureRandom());
+        return keyGen.generateKeyPair();
+    }
+
+    private static byte[] sign(PrivateKey privateKey, byte[] data) throws Exception {
+        Signature signer = Signature.getInstance("DSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(privateKey);
+        signer.update(data);
+        return signer.sign();
+    }
+
+    private static boolean verify(PublicKey publicKey, byte[] data, byte[] signature) throws Exception {
+        Signature verifier = Signature.getInstance("DSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(publicKey);
+        verifier.update(data);
+        return verifier.verify(signature);
     }
 } 

@@ -8,6 +8,8 @@ import org.openhitls.crypto.jce.signer.RSAPadding;
 import org.openhitls.crypto.jce.signer.RSAPadding.PSSParameterSpec;
 
 public class RSAImpl extends NativeResource {
+    private static final String PUBLIC_EXPONENT_REQUIRED =
+            "RSA public exponent is required; use setKeys(publicKey, privateKey, publicExponent)";
     private boolean parametersSet = false;
     private byte[] publicKey;
     private byte[] privateKey;
@@ -19,9 +21,9 @@ public class RSAImpl extends NativeResource {
         super(CryptoNative.rsaCreateContext(), RSAImpl::freeNativeContext);
     }
 
-    public RSAImpl(byte[] publicKey, byte[] privateKey) {
-        super(CryptoNative.rsaCreateContext(), RSAImpl::freeNativeContext);
-        setKeys(publicKey, privateKey);
+    public RSAImpl(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
+        super(createContextForKeys(publicKey, privateKey, publicExponent), RSAImpl::freeNativeContext);
+        setKeys(publicKey, privateKey, publicExponent);
     }
 
     private static void freeNativeContext(long nativeContext) {
@@ -30,10 +32,11 @@ public class RSAImpl extends NativeResource {
         }
     }
 
-    public void setKeys(byte[] publicKey, byte[] privateKey) {
+    public void setKeys(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
+        requirePublicExponent(publicKey, privateKey, publicExponent);
         this.publicKey = publicKey != null ? publicKey.clone() : null;
         this.privateKey = privateKey != null ? privateKey.clone() : null;
-        CryptoNative.rsaSetKeys(nativeContext, publicKey, privateKey);
+        CryptoNative.rsaSetKeys(nativeContext, publicKey, privateKey, publicExponent);
     }
 
     public void setParameters(byte[] e, int keyBits) {
@@ -105,5 +108,17 @@ public class RSAImpl extends NativeResource {
 
     public byte[] getPrivateKey() {
         return privateKey != null ? privateKey.clone() : null;
+    }
+
+    private static long createContextForKeys(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
+        requirePublicExponent(publicKey, privateKey, publicExponent);
+        return CryptoNative.rsaCreateContext();
+    }
+
+    private static void requirePublicExponent(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
+        if ((publicKey != null || privateKey != null)
+                && (publicExponent == null || publicExponent.length == 0)) {
+            throw new IllegalArgumentException(PUBLIC_EXPONENT_REQUIRED);
+        }
     }
 } 
