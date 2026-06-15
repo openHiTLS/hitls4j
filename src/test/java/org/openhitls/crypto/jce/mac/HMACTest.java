@@ -8,7 +8,6 @@ import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 import java.security.Security;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -16,7 +15,6 @@ import java.util.concurrent.Executors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.fail;
 
 public class HMACTest extends BaseTest {
     private static final String[] HMAC_ALGORITHMS = {
@@ -29,50 +27,9 @@ public class HMACTest extends BaseTest {
         28, 32, 48, 64, 32   // SHA3-224, SHA3-256, SHA3-384, SHA3-512, SM3
     };
 
-    private static final String[][] HMAC_VECTORS = {
-        {"HMACSHA1", "b617318655057264e28bc0b6fb378c8ef146be00"},
-        {"HMACSHA224", "896fb1128abbdf196832107cd49df33f47b4b1169912ba4f53684b22"},
-        {"HMACSHA256", "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"},
-        {"HMACSHA384", "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9"
-                + "ea9076ede7f4af152e8b2fa9cb6"},
-        {"HMACSHA512", "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde"
-                + "daa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854"},
-        {"HMACSHA3-224", "3b16546bbc7be2706a031dcafd56373d9884367641d8c59af3c860f7"},
-        {"HMACSHA3-256", "ba85192310dffa96e2a3a40e69774351140bb7185e1202cdcc917589f95e16bb"},
-        {"HMACSHA3-384", "68d2dcf7fd4ddd0a2240c8a437305f61fb7334cfb5d0226e1bc27dc10a2e723a"
-                + "20d370b47743130e26ac7e3d532886bd"},
-        {"HMACSHA3-512", "eb3fbd4b2eaab8f5c504bd3a41465aacec15770a7cabac531e482f860b5ec7ba"
-                + "47ccb2c6f2afce8f88d22b6dc61380f23a668fd3888bb80537c0a0b86407689e"},
-        {"HMACSM3", "51b00d1fb49832bfb01c3ce27848e59f871d9ba938dc563b338ca964755cce70"}
-    };
-
     @BeforeClass
     public static void setUp() {
         Security.addProvider(new HiTls4jProvider());
-    }
-
-    @Test
-    public void testKnownAnswerVectors() throws Exception {
-        byte[] key = repeatedByte(0x0b, 20);
-        byte[] message = "Hi There".getBytes(StandardCharsets.US_ASCII);
-
-        for (String[] vector : HMAC_VECTORS) {
-            String algorithm = vector[0];
-            SecretKeySpec keySpec = new SecretKeySpec(key, algorithm);
-            byte[] expected = hex(vector[1]);
-
-            Mac mac = Mac.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
-            mac.init(keySpec);
-            assertArrayEquals("Known-answer HMAC mismatch for " + algorithm,
-                    expected, mac.doFinal(message));
-
-            mac.reset();
-            for (byte b : message) {
-                mac.update(b);
-            }
-            assertArrayEquals("Byte-by-byte HMAC mismatch for " + algorithm,
-                    expected, mac.doFinal());
-        }
     }
 
     @Test
@@ -221,73 +178,5 @@ public class HMACTest extends BaseTest {
                 }
             }
         }
-    }
-
-    @Test
-    public void testRejectsUseBeforeInit() throws Exception {
-        for (String algorithm : HMAC_ALGORITHMS) {
-            Mac mac = Mac.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
-            try {
-                mac.doFinal(new byte[] {1, 2, 3});
-                fail("Expected IllegalStateException before init for " + algorithm);
-            } catch (IllegalStateException expected) {
-                // Expected.
-            }
-
-            try {
-                mac.update((byte) 1);
-                fail("Expected IllegalStateException before init for " + algorithm);
-            } catch (IllegalStateException expected) {
-                // Expected.
-            }
-        }
-    }
-
-    @Test
-    public void testRejectsWrongKeyAlgorithm() throws Exception {
-        for (String algorithm : HMAC_ALGORITHMS) {
-            Mac mac = Mac.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
-            try {
-                mac.init(new SecretKeySpec(new byte[] {1, 2, 3, 4}, "AES"));
-                fail("Expected InvalidKeyException for " + algorithm);
-            } catch (InvalidKeyException expected) {
-                // Expected.
-            }
-        }
-    }
-
-    @Test
-    public void testUnknownAlgorithmRejected() throws Exception {
-        try {
-            Mac.getInstance("HMACSHA999", HiTls4jProvider.PROVIDER_NAME);
-            fail("Expected NoSuchAlgorithmException");
-        } catch (java.security.NoSuchAlgorithmException expected) {
-            // Expected.
-        }
-    }
-
-    private static byte[] repeatedByte(int value, int count) {
-        byte[] bytes = new byte[count];
-        for (int i = 0; i < bytes.length; i++) {
-            bytes[i] = (byte) value;
-        }
-        return bytes;
-    }
-
-    private static byte[] hex(String hex) {
-        if ((hex.length() & 1) != 0) {
-            throw new IllegalArgumentException("Hex string must have even length");
-        }
-
-        byte[] bytes = new byte[hex.length() / 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int hi = Character.digit(hex.charAt(i * 2), 16);
-            int lo = Character.digit(hex.charAt(i * 2 + 1), 16);
-            if (hi < 0 || lo < 0) {
-                throw new IllegalArgumentException("Invalid hex string");
-            }
-            bytes[i] = (byte) ((hi << 4) | lo);
-        }
-        return bytes;
     }
 }

@@ -52,20 +52,13 @@ public class CryptoNative {
     public static native long rsaCreateContext();
     public static native void rsaFreeContext(long nativeRef);
     public static native void rsaSetParameters(long nativeRef, byte[] e, int keyBits);
-    public static native void rsaSetKeys(long nativeRef, byte[] publicKey, byte[] privateKey, byte[] publicExponent);
+    public static native void rsaSetKeys(long nativeRef, byte[] publicKey, byte[] privateKey);
     public static native void rsaSetPadding(long nativeRef, int paddingMode);
     public static native byte[][] rsaGenerateKeyPair(long nativeRef);
     public static native byte[] rsaSign(long nativeRef, byte[] data, String digestAlgorithm);
     public static native boolean rsaVerify(long nativeRef, byte[] data, byte[] signature, String digestAlgorithm);
     public static native byte[] rsaEncrypt(long nativeRef, byte[] data);
     public static native byte[] rsaDecrypt(long nativeRef, byte[] encryptedData);
-    public static native byte[] rsaEncodePublicKey(byte[] modulus, byte[] publicExponent);
-    public static native byte[] rsaEncodePrivateKey(byte[] modulus, byte[] privateExponent, byte[] publicExponent,
-                                                    byte[] primeP, byte[] primeQ,
-                                                    byte[] primeExponentP, byte[] primeExponentQ,
-                                                    byte[] crtCoefficient);
-    public static native byte[][] rsaDecodePublicKey(byte[] x509EncodedKey);
-    public static native byte[][] rsaDecodePrivateKey(byte[] encodedKey);
 
     // Add PSS support
     public static native byte[] rsaSignPSS(long nativeRef, byte[] data, String digestAlgorithm,

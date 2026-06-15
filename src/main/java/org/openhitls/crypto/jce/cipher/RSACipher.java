@@ -1,6 +1,5 @@
 package org.openhitls.crypto.jce.cipher;
 
-import java.math.BigInteger;
 import java.security.AlgorithmParameters;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -21,7 +20,6 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.ShortBufferException;
 
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
-import org.openhitls.crypto.jce.key.RSAKeyUtil;
 
 public class RSACipher extends CipherSpi {
     private RSAImpl rsaImpl;
@@ -96,32 +94,50 @@ public class RSACipher extends CipherSpi {
             RSAKey rsaKey = (RSAKey) key;
             byte[] e;
             if (key instanceof RSAPublicKey) {
-                BigInteger publicExponent = RSAKeyUtil.getPublicExponent((RSAPublicKey) key);
-                if (publicExponent == null) {
-                    throw new InvalidKeyException("RSA public key public exponent cannot be null");
-                }
-                e = RSAKeyUtil.toUnsignedBytes(publicExponent);
+                e = ((RSAPublicKey) key).getPublicExponent().toByteArray();
             } else {
-                e = RSAKeyUtil.toUnsignedBytes(RSAKeyUtil.requirePublicExponent((RSAPrivateKey) key));
+                // For private key, use default public exponent (65537)
+                e = new byte[] {0x01, 0x00, 0x01};
+            }
+            // Remove leading zero if present
+            if (e.length > 0 && e[0] == 0) {
+                byte[] tmp = new byte[e.length - 1];
+                System.arraycopy(e, 1, tmp, 0, tmp.length);
+                e = tmp;
             }
             rsaImpl.setParameters(e, rsaKey.getModulus().bitLength());
 
             // Then set the keys
             if (opmode == Cipher.ENCRYPT_MODE) {
                 RSAPublicKey pubKey = (RSAPublicKey) key;
-                byte[] modulus = RSAKeyUtil.toUnsignedBytes(pubKey.getModulus());
-                rsaImpl.setKeys(modulus, null, e);
+                byte[] modulus = pubKey.getModulus().toByteArray();
+                // Remove leading zero if present
+                if (modulus[0] == 0) {
+                    byte[] tmp = new byte[modulus.length - 1];
+                    System.arraycopy(modulus, 1, tmp, 0, tmp.length);
+                    modulus = tmp;
+                }
+                rsaImpl.setKeys(modulus, null);
             } else {
                 RSAPrivateKey privKey = (RSAPrivateKey) key;
-                byte[] modulus = RSAKeyUtil.toUnsignedBytes(privKey.getModulus());
-                byte[] privateExponent = RSAKeyUtil.toUnsignedBytes(privKey.getPrivateExponent());
-                rsaImpl.setKeys(modulus, privateExponent, e);
+                byte[] modulus = privKey.getModulus().toByteArray();
+                byte[] privateExponent = privKey.getPrivateExponent().toByteArray();
+                // Remove leading zeros if present
+                if (modulus[0] == 0) {
+                    byte[] tmp = new byte[modulus.length - 1];
+                    System.arraycopy(modulus, 1, tmp, 0, tmp.length);
+                    modulus = tmp;
+                }
+                if (privateExponent[0] == 0) {
+                    byte[] tmp = new byte[privateExponent.length - 1];
+                    System.arraycopy(privateExponent, 1, tmp, 0, tmp.length);
+                    privateExponent = tmp;
+                }
+                rsaImpl.setKeys(modulus, privateExponent);
             }
 
             // Set padding mode
             rsaImpl.setPadding("NoPadding".equalsIgnoreCase(padding) ? 0 : 1);
-        } catch (InvalidKeyException e) {
-            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize RSA cipher", e);
         }

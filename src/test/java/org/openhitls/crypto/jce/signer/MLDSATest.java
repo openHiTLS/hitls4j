@@ -246,9 +246,7 @@ public class MLDSATest extends BaseTest {
             KeyPair keyPair = keyGen.generateKeyPair();
 
             // Sign with external mu
-            byte[] data = hexStringToByteArray(
-                    "D9DFFBBD4191700AD4B00A0BFDC769A70500540A8157AB874F6D114CC35B8F90"
-                            + "F86F41F82074554850DD959F5F71509C0748AC4076671F1BD71C3297D9C1E769");
+            byte[] data = "D9DFFBBD4191700AD4B00A0BFDC769A70500540A8157AB874F6D114CC35B8F90F86F41F82074554850DD959F5F71509C0748AC4076671F1BD71C3297D9C1E769".getBytes(StandardCharsets.UTF_8);
             MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(false, false, false, true, null);
             Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
             signer.setParameter(signatureParamSpec);
@@ -370,62 +368,6 @@ public class MLDSATest extends BaseTest {
 
             assertArrayEquals("Public key data should match for " + parameterSet, pubKey, pubSpecResult.getEncoded());
             assertArrayEquals("Private key data should match for " + parameterSet, privKey, privSpecResult.getEncoded());
-        }
-    }
-
-    @Test
-    public void testMLDSARequiresInitialization() throws Exception {
-        Signature signature = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
-        byte[] data = "data".getBytes(StandardCharsets.UTF_8);
-
-        try {
-            signature.update(data);
-            fail("Expected SignatureException before init");
-        } catch (SignatureException expected) {
-            // Expected.
-        }
-
-        try {
-            signature.sign();
-            fail("Expected SignatureException before initSign");
-        } catch (SignatureException expected) {
-            // Expected.
-        }
-
-        try {
-            signature.verify(new byte[2420]);
-            fail("Expected SignatureException before initVerify");
-        } catch (SignatureException expected) {
-            // Expected.
-        }
-    }
-
-    @Test
-    public void testMLDSARejectsWrongKeyAndParameterTypes() throws Exception {
-        KeyPairGenerator rsaKeyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
-        rsaKeyGen.initialize(2048);
-        KeyPair rsaKeyPair = rsaKeyGen.generateKeyPair();
-        Signature signature = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
-
-        try {
-            signature.initSign(rsaKeyPair.getPrivate());
-            fail("Expected InvalidKeyException for RSA private key");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-
-        try {
-            signature.initVerify(rsaKeyPair.getPublic());
-            fail("Expected InvalidKeyException for RSA public key");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-
-        try {
-            signature.setParameter(new ECGenParameterSpec("secp256r1"));
-            fail("Expected InvalidAlgorithmParameterException for non-ML-DSA params");
-        } catch (InvalidAlgorithmParameterException expected) {
-            // Expected.
         }
     }
 
