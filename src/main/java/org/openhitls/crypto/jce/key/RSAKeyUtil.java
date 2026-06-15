@@ -39,6 +39,12 @@ public final class RSAKeyUtil {
     }
 
     public static byte[] toUnsignedBytes(BigInteger value) {
+        if (value == null) {
+            throw new IllegalArgumentException("RSA value cannot be null");
+        }
+        if (value.signum() <= 0) {
+            throw new IllegalArgumentException("RSA value must be positive");
+        }
         byte[] bytes = value.toByteArray();
         if (bytes.length > 1 && bytes[0] == 0) {
             byte[] unsigned = new byte[bytes.length - 1];

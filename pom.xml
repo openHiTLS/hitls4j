@@ -26,10 +26,24 @@
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <openhitls.root>${env.OPENHITLS_ROOT}</openhitls.root>
+        <openhitls.root></openhitls.root>
         <openhitls.lib.dir>${openhitls.root}/build</openhitls.lib.dir>
         <openhitls.build.include.dir>${openhitls.root}/build/include</openhitls.build.include.dir>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>openhitls-root-from-env</id>
+            <activation>
+                <property>
+                    <name>env.OPENHITLS_ROOT</name>
+                </property>
+            </activation>
+            <properties>
+                <openhitls.root>${env.OPENHITLS_ROOT}</openhitls.root>
+            </properties>
+        </profile>
+    </profiles>
 
 <build>
     <plugins>
@@ -44,6 +58,11 @@
                     <phase>compile</phase>
                     <configuration>
                         <target>
+                            <fail message="未设置 OPENHITLS_ROOT 或 -Dopenhitls.root。请设置 OPENHITLS_ROOT=/path/to/openhitls 或传入 -Dopenhitls.root=/path/to/openhitls。">
+                                <condition>
+                                    <equals arg1="${openhitls.root}" arg2=""/>
+                                </condition>
+                            </fail>
                             <fail message="OPENHITLS_ROOT or -Dopenhitls.root must point to a valid OpenHiTLS root, not '${openhitls.root}'.">
                                 <condition>
                                     <or>

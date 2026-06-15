@@ -325,8 +325,11 @@ byte[] receiverSharedKey = kaReceiver.generateSecret();
 - `HMACSM3`
 
 ### Signature Algorithms
-- `SHA224withRSA`, `SHA256withRSA`, `SHA384withRSA`, `SHA512withRSA`, `SM3withRSA`
-- `SHA224withRSA/PSS`, `SHA256withRSA/PSS`, `SHA384withRSA/PSS`, `SHA512withRSA/PSS`, `SM3withRSA/PSS`
+- `SHA1withRSA`, `SHA224withRSA`, `SHA256withRSA`, `SHA384withRSA`, `SHA512withRSA`, `SM3withRSA`
+- RSA aliases: `SHA1withRSAEncryption`, `SHA224withRSAEncryption`, `SHA256withRSAEncryption`, `SHA384withRSAEncryption`, `SHA512withRSAEncryption`
+- RSA OID aliases: `1.2.840.113549.1.1.5`, `1.2.840.113549.1.1.14`, `1.2.840.113549.1.1.11`, `1.2.840.113549.1.1.12`, `1.2.840.113549.1.1.13`
+- `SHA224withRSA/PSS`, `SHA256withRSA/PSS`, `SHA384withRSA/PSS`, `SHA512withRSA/PSS`
+- `SM3withRSA/PSS` is not supported because the native RSA-PSS parameter path rejects SM3.
 - `SHA256withECDSA`, `SHA384withECDSA`, `SHA512withECDSA`
 - `SM3withSM2`
 

@@ -30,6 +30,7 @@ import org.openhitls.crypto.jce.key.RSAPrivateKeyImpl;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 import java.security.Security;
 import java.security.SignatureException;
+import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
 
 public class RSATest {
@@ -196,6 +197,30 @@ public class RSATest {
             fail("Expected empty public exponent to be rejected");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("public exponent"));
+        }
+    }
+
+    @Test
+    public void testNativeRSASetKeysRequiresPublicExponent() {
+        byte[] modulus = new byte[] {0x01};
+        byte[] privateExponent = new byte[] {0x01};
+        long ctx = CryptoNative.rsaCreateContext();
+        try {
+            try {
+                CryptoNative.rsaSetKeys(ctx, modulus, privateExponent, null);
+                fail("Expected native rsaSetKeys to reject null public exponent");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("public exponent"));
+            }
+
+            try {
+                CryptoNative.rsaSetKeys(ctx, modulus, privateExponent, new byte[0]);
+                fail("Expected native rsaSetKeys to reject empty public exponent");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("public exponent"));
+            }
+        } finally {
+            CryptoNative.rsaFreeContext(ctx);
         }
     }
 
@@ -736,7 +761,7 @@ public class RSATest {
     public void testUnsupportedSM3RSAPSSIsNotRegistered() throws Exception {
         try {
             Signature.getInstance("SM3withRSA/PSS", HiTls4jProvider.PROVIDER_NAME);
-            fail("SM3withRSA/PSS should not be registered when native PSS parameters are unsupported");
+            fail("SM3withRSA/PSS should not be registered because native PSS parameters reject SM3");
         } catch (NoSuchAlgorithmException expected) {
             // Expected.
         }

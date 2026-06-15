@@ -47,6 +47,8 @@ public class RSAKeyFactoryTest {
         expectInvalidKeySpec(() -> keyFactory.generatePublic(
                 new RSAPublicKeySpec(MODULUS, null)));
         expectInvalidKeySpec(() -> keyFactory.generatePublic(
+                new RSAPublicKeySpec(BigInteger.ZERO, PUBLIC_EXPONENT)));
+        expectInvalidKeySpec(() -> keyFactory.generatePublic(
                 new RSAPublicKeySpec(BigInteger.valueOf(-3233), PUBLIC_EXPONENT)));
         expectInvalidKeySpec(() -> keyFactory.generatePublic(
                 new RSAPublicKeySpec(MODULUS, BigInteger.valueOf(-65537))));
@@ -54,8 +56,6 @@ public class RSAKeyFactoryTest {
 
     @Test
     public void testGeneratePublicDefersRsaSemanticValidation() throws Exception {
-        assertNotNull(keyFactory.generatePublic(
-                new RSAPublicKeySpec(BigInteger.ZERO, PUBLIC_EXPONENT)));
         assertNotNull(keyFactory.generatePublic(
                 new RSAPublicKeySpec(BigInteger.ONE, PUBLIC_EXPONENT)));
         assertNotNull(keyFactory.generatePublic(
@@ -83,6 +83,10 @@ public class RSAKeyFactoryTest {
         expectInvalidKeySpec(() -> keyFactory.generatePrivate(
                 new RSAPrivateKeySpec(MODULUS, null)));
         expectInvalidKeySpec(() -> keyFactory.generatePrivate(
+                new RSAPrivateKeySpec(BigInteger.ZERO, PRIVATE_EXPONENT)));
+        expectInvalidKeySpec(() -> keyFactory.generatePrivate(
+                new RSAPrivateKeySpec(MODULUS, BigInteger.ZERO)));
+        expectInvalidKeySpec(() -> keyFactory.generatePrivate(
                 new RSAPrivateKeySpec(BigInteger.valueOf(-3233), PRIVATE_EXPONENT)));
         expectInvalidKeySpec(() -> keyFactory.generatePrivate(
                 new RSAPrivateKeySpec(MODULUS, BigInteger.valueOf(-2753))));
@@ -91,11 +95,7 @@ public class RSAKeyFactoryTest {
     @Test
     public void testGeneratePrivateDefersRsaSemanticValidation() throws Exception {
         assertNotNull(keyFactory.generatePrivate(
-                new RSAPrivateKeySpec(BigInteger.ZERO, PRIVATE_EXPONENT)));
-        assertNotNull(keyFactory.generatePrivate(
                 new RSAPrivateKeySpec(BigInteger.ONE, PRIVATE_EXPONENT)));
-        assertNotNull(keyFactory.generatePrivate(
-                new RSAPrivateKeySpec(MODULUS, BigInteger.ZERO)));
     }
 
     @Test
@@ -110,6 +110,9 @@ public class RSAKeyFactoryTest {
                 PUBLIC_EXPONENT, null, PRIME_Q,
                 PRIME_EXPONENT_P, PRIME_EXPONENT_Q, CRT_COEFFICIENT)));
         expectInvalidKeySpec(() -> keyFactory.generatePrivate(validCrtSpec(
+                PUBLIC_EXPONENT, BigInteger.ZERO, PRIME_Q,
+                PRIME_EXPONENT_P, PRIME_EXPONENT_Q, CRT_COEFFICIENT)));
+        expectInvalidKeySpec(() -> keyFactory.generatePrivate(validCrtSpec(
                 PUBLIC_EXPONENT, PRIME_P, PRIME_Q,
                 PRIME_EXPONENT_P, PRIME_EXPONENT_Q, BigInteger.valueOf(-38))));
     }
@@ -122,12 +125,18 @@ public class RSAKeyFactoryTest {
         assertNotNull(keyFactory.generatePrivate(validCrtSpec(
                 BigInteger.valueOf(2), PRIME_P, PRIME_Q,
                 PRIME_EXPONENT_P, PRIME_EXPONENT_Q, CRT_COEFFICIENT)));
-        assertNotNull(keyFactory.generatePrivate(validCrtSpec(
-                PUBLIC_EXPONENT, PRIME_P, BigInteger.ZERO,
-                PRIME_EXPONENT_P, PRIME_EXPONENT_Q, CRT_COEFFICIENT)));
-        assertNotNull(keyFactory.generatePrivate(validCrtSpec(
-                PUBLIC_EXPONENT, PRIME_P, PRIME_Q,
-                BigInteger.ZERO, PRIME_EXPONENT_Q, CRT_COEFFICIENT)));
+    }
+
+    @Test
+    public void testDirectRsaKeyEncodingRejectsNegativeComponents() {
+        expectEncodingRejected(() -> new RSAPublicKeyImpl(
+                BigInteger.valueOf(-3233), PUBLIC_EXPONENT).getEncoded());
+        expectEncodingRejected(() -> new RSAPublicKeyImpl(
+                MODULUS, BigInteger.valueOf(-65537)).getEncoded());
+        expectEncodingRejected(() -> new RSAPrivateKeyImpl(
+                BigInteger.valueOf(-3233), PRIVATE_EXPONENT, PUBLIC_EXPONENT).getEncoded());
+        expectEncodingRejected(() -> new RSAPrivateKeyImpl(
+                MODULUS, BigInteger.valueOf(-2753), PUBLIC_EXPONENT).getEncoded());
     }
 
     @Test
@@ -198,6 +207,19 @@ public class RSAKeyFactoryTest {
             // Expected.
         } catch (Exception e) {
             throw new AssertionError("Expected IllegalArgumentException", e);
+        }
+    }
+
+    private static void expectEncodingRejected(KeyFactoryOperation operation) {
+        try {
+            operation.run();
+            fail("Expected RSA encoding to reject invalid component");
+        } catch (IllegalStateException expected) {
+            if (!(expected.getCause() instanceof IllegalArgumentException)) {
+                throw new AssertionError("Expected IllegalArgumentException cause", expected);
+            }
+        } catch (Exception e) {
+            throw new AssertionError("Expected IllegalStateException", e);
         }
     }
 

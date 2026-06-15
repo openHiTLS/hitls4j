@@ -218,8 +218,8 @@ public class RSAKeyFactory extends KeyFactorySpi {
         if (value == null) {
             throw new InvalidKeySpecException("RSA " + name + " cannot be null");
         }
-        if (value.signum() < 0) {
-            throw new InvalidKeySpecException("RSA " + name + " cannot be negative");
+        if (value.signum() <= 0) {
+            throw new InvalidKeySpecException("RSA " + name + " must be positive");
         }
     }
 }

@@ -1,4 +1,5 @@
 #include <jni.h>
+#include "org_openhitls_crypto_core_CryptoNative.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1601,6 +1602,12 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
     jsize eLen = 0;
     bool releaseExponent = false;
 
+    if ((publicKey != NULL || privateKey != NULL)
+            && (publicExponent == NULL || (*env)->GetArrayLength(env, publicExponent) == 0)) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "RSA public exponent is required");
+        return;
+    }
+
     if (publicExponent != NULL && (*env)->GetArrayLength(env, publicExponent) > 0) {
         eLen = (*env)->GetArrayLength(env, publicExponent);
         eBytes = (uint8_t *)(*env)->GetByteArrayElements(env, publicExponent, NULL);
@@ -1612,7 +1619,7 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
     }
 
     // Set the public key if provided
-    if (publicKey != NULL && eBytes != NULL && eLen > 0) {
+    if (publicKey != NULL) {
         CRYPT_EAL_PkeyPub pub;
         memset(&pub, 0, sizeof(CRYPT_EAL_PkeyPub));
         pub.id = CRYPT_PKEY_RSA;
@@ -2063,6 +2070,12 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDe
     }
 
     uint32_t keyBytes = CRYPT_EAL_PkeyGetKeyLen(ctx);
+    if (keyBytes == 0) {
+        CRYPT_EAL_PkeyFreeCtx(ctx);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get RSA public key size");
+        return NULL;
+    }
+
     CRYPT_EAL_PkeyPub pub;
     memset(&pub, 0, sizeof(pub));
     pub.id = CRYPT_PKEY_RSA;
