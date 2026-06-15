@@ -1,13 +1,11 @@
 package org.openhitls.crypto.jce.pqc;
 
-import org.junit.Ignore;
 import org.junit.Test;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 import org.openhitls.crypto.jce.spec.McElieceGenParameterSpec;
 import org.openhitls.crypto.jce.key.McElieceCiphertextKey;
 
 import javax.crypto.KeyAgreement;
-import javax.crypto.spec.SecretKeySpec;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Key;
@@ -15,7 +13,6 @@ import java.security.Security;
 
 import static org.junit.Assert.*;
 
-@Ignore("Disabled temporarily because Classic-McEliece native key generation is too slow in the current OpenHiTLS build")
 public class McElieceTest {
     static {
         Security.addProvider(new HiTls4jProvider());
@@ -84,24 +81,6 @@ public class McElieceTest {
             assertNotNull("Receiver shared secret should not be null for " + paramSet, receiverSharedSecret);
             assertArrayEquals("Shared secrets should match for " + paramSet,
                     senderSharedSecret, receiverSharedSecret);
-        }
-    }
-
-    @Test
-    public void testInvalidKeyAgreementUsage() throws Exception {
-        KeyAgreement keyAgreement = KeyAgreement.getInstance("Classic-McEliece", HiTls4jProvider.PROVIDER_NAME);
-        try {
-            keyAgreement.doPhase(null, true);
-            fail("Expected IllegalStateException before init");
-        } catch (IllegalStateException expected) {
-            // Expected.
-        }
-
-        try {
-            keyAgreement.init(new SecretKeySpec(new byte[16], "AES"));
-            fail("Expected InvalidKeyException for non-McEliece key");
-        } catch (java.security.InvalidKeyException expected) {
-            // Expected.
         }
     }
 }

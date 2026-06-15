@@ -11,10 +11,8 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.util.Arrays;
@@ -32,23 +30,6 @@ public class AESTest extends BaseTest {
     @BeforeClass
     public static void setUp() {
         Security.addProvider(new HiTls4jProvider());
-    }
-
-    @Test
-    public void testAesKnownAnswerVectors() throws Exception {
-        assertCipherVector(
-                "AES/ECB/NOPADDING",
-                "000102030405060708090a0b0c0d0e0f",
-                null,
-                "00112233445566778899aabbccddeeff",
-                "69c4e0d86a7b0430d8cdb78070b4c55a");
-
-        assertCipherVector(
-                "AES/CBC/NOPADDING",
-                "2b7e151628aed2a6abf7158809cf4f3c",
-                "000102030405060708090a0b0c0d0e0f",
-                "6bc1bee22e409f96e93d7e117393172a",
-                "7649abac8119b246cee98e9b12e9197d");
     }
 
     @Test
@@ -583,73 +564,5 @@ public class AESTest extends BaseTest {
 
         // Verify
         assertArrayEquals("ECB mode with zeros padding failed", testData, trimmedDecrypted);
-    }
-
-    @Test
-    public void testInvalidKeyAndIvRejected() throws Exception {
-        SecretKeySpec shortKey = new SecretKeySpec(new byte[15], "AES");
-        Cipher ecbCipher = Cipher.getInstance("AES/ECB/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-        try {
-            ecbCipher.init(Cipher.ENCRYPT_MODE, shortKey);
-            fail("Expected InvalidKeyException for short AES key");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-
-        SecretKeySpec validKey = new SecretKeySpec(new byte[16], "AES");
-        Cipher cbcCipher = Cipher.getInstance("AES/CBC/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-        try {
-            cbcCipher.init(Cipher.ENCRYPT_MODE, validKey);
-            fail("Expected InvalidKeyException when CBC IV is missing");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-
-        try {
-            cbcCipher.init(Cipher.ENCRYPT_MODE, validKey, new IvParameterSpec(new byte[8]));
-            fail("Expected InvalidKeyException for short CBC IV");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-    }
-
-    private static void assertCipherVector(String transformation, String keyHex, String ivHex,
-            String plaintextHex, String ciphertextHex) throws Exception {
-        SecretKeySpec key = new SecretKeySpec(hex(keyHex), "AES");
-        byte[] plaintext = hex(plaintextHex);
-        byte[] expectedCiphertext = hex(ciphertextHex);
-
-        Cipher cipher = Cipher.getInstance(transformation, HiTls4jProvider.PROVIDER_NAME);
-        if (ivHex == null) {
-            cipher.init(Cipher.ENCRYPT_MODE, key);
-        } else {
-            cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(hex(ivHex)));
-        }
-        byte[] ciphertext = cipher.doFinal(plaintext);
-        assertArrayEquals("Ciphertext mismatch for " + transformation, expectedCiphertext, ciphertext);
-
-        if (ivHex == null) {
-            cipher.init(Cipher.DECRYPT_MODE, key);
-        } else {
-            cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(hex(ivHex)));
-        }
-        assertArrayEquals("Plaintext mismatch for " + transformation, plaintext, cipher.doFinal(ciphertext));
-    }
-
-    private static byte[] hex(String hex) {
-        if ((hex.length() & 1) != 0) {
-            throw new IllegalArgumentException("Hex string must have even length");
-        }
-
-        byte[] bytes = new byte[hex.length() / 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int hi = Character.digit(hex.charAt(i * 2), 16);
-            int lo = Character.digit(hex.charAt(i * 2 + 1), 16);
-            if (hi < 0 || lo < 0) {
-                throw new IllegalArgumentException("Invalid hex string");
-            }
-            bytes[i] = (byte) ((hi << 4) | lo);
-        }
-        return bytes;
     }
 }

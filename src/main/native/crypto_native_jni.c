@@ -4,11 +4,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <limits.h>
 #include <crypto/crypt_errno.h>
 #include <crypto/crypt_algid.h>
 #include <crypto/crypt_eal_provider.h>
-#include <crypto/crypt_eal_codecs.h>
 #include <crypto/crypt_eal_pkey.h>
 #include <crypto/crypt_eal_cipher.h>
 #include <crypto/crypt_eal_mac.h>
@@ -18,6 +16,7 @@
 #include <bsl/bsl_sal.h>
 #include <bsl/bsl_err.h>
 #include <pthread.h>
+#include <org_openhitls_crypto_core_CryptoNative.h>
 
 
 // Exception type constants
@@ -56,141 +55,6 @@ static void throwExceptionWithError(JNIEnv *env, const char *exceptionClass, con
         (*env)->ThrowNew(env, cls, errorMsg);
     }
     (*env)->DeleteLocalRef(env, cls);
-}
-
-static jbyteArray newByteArrayFromData(JNIEnv *env, const uint8_t *data, uint32_t dataLen) {
-    if (dataLen > INT32_MAX) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Native buffer too large for Java byte array");
-        return NULL;
-    }
-
-    jbyteArray array = (*env)->NewByteArray(env, (jsize)dataLen);
-    if (array == NULL) {
-        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate Java byte array");
-        return NULL;
-    }
-    if (dataLen != 0) {
-        (*env)->SetByteArrayRegion(env, array, 0, (jsize)dataLen, (const jbyte *)data);
-    }
-    return array;
-}
-
-static jobjectArray newByteArrayObjectArray(JNIEnv *env, jsize length) {
-    jclass byteArrayClass = (*env)->FindClass(env, "[B");
-    if (byteArrayClass == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to find byte array class");
-        return NULL;
-    }
-
-    jobjectArray array = (*env)->NewObjectArray(env, length, byteArrayClass, NULL);
-    (*env)->DeleteLocalRef(env, byteArrayClass);
-    if (array == NULL) {
-        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate byte array result");
-    }
-    return array;
-}
-
-typedef struct {
-    jbyteArray array;
-    jbyte *bytes;
-    uint32_t len;
-} JByteArrayRef;
-
-static bool getByteArrayRef(JNIEnv *env, jbyteArray array, JByteArrayRef *ref, const char *message, bool required) {
-    ref->array = array;
-    ref->bytes = NULL;
-    ref->len = 0;
-
-    if (array == NULL) {
-        if (required) {
-            throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, message);
-            return false;
-        }
-        return true;
-    }
-
-    ref->bytes = (*env)->GetByteArrayElements(env, array, NULL);
-    if (ref->bytes == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, message);
-        return false;
-    }
-    ref->len = (uint32_t)(*env)->GetArrayLength(env, array);
-    return true;
-}
-
-static uint8_t *copyByteArrayWithTerminator(JNIEnv *env, jbyteArray array, uint32_t *len, const char *message) {
-    if (array == NULL || len == NULL) {
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, message);
-        return NULL;
-    }
-
-    jsize arrayLen = (*env)->GetArrayLength(env, array);
-    uint8_t *buffer = malloc((size_t)arrayLen + 1);
-    if (buffer == NULL) {
-        throwException(env, OUT_OF_MEMORY_ERROR, message);
-        return NULL;
-    }
-
-    if (arrayLen > 0) {
-        (*env)->GetByteArrayRegion(env, array, 0, arrayLen, (jbyte *)buffer);
-        if ((*env)->ExceptionCheck(env)) {
-            secureZeroFree(buffer, (size_t)arrayLen + 1);
-            return NULL;
-        }
-    }
-    buffer[arrayLen] = '\0';
-    *len = (uint32_t)arrayLen;
-    return buffer;
-}
-
-static void releaseByteArrayRef(JNIEnv *env, JByteArrayRef *ref) {
-    if (ref->array != NULL && ref->bytes != NULL) {
-        (*env)->ReleaseByteArrayElements(env, ref->array, ref->bytes, JNI_ABORT);
-    }
-    ref->array = NULL;
-    ref->bytes = NULL;
-    ref->len = 0;
-}
-
-static void deleteLocalByteArrays(JNIEnv *env, jbyteArray *arrays, size_t length) {
-    for (size_t i = 0; i < length; i++) {
-        if (arrays[i] != NULL) {
-            (*env)->DeleteLocalRef(env, arrays[i]);
-            arrays[i] = NULL;
-        }
-    }
-}
-
-static bool allByteArraysCreated(jbyteArray *arrays, size_t length) {
-    for (size_t i = 0; i < length; i++) {
-        if (arrays[i] == NULL) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool isZeroComponent(const uint8_t *data, uint32_t dataLen) {
-    if (data == NULL || dataLen == 0) {
-        return true;
-    }
-    for (uint32_t i = 0; i < dataLen; i++) {
-        if (data[i] != 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static void freeRsaPrivateKeyBuffers(CRYPT_EAL_PkeyPrv *privKey, uint32_t allocLen) {
-    free(privKey->key.rsaPrv.n);
-    secureZeroFree(privKey->key.rsaPrv.d, allocLen);
-    secureZeroFree(privKey->key.rsaPrv.e, allocLen);
-    secureZeroFree(privKey->key.rsaPrv.p, allocLen);
-    secureZeroFree(privKey->key.rsaPrv.q, allocLen);
-    secureZeroFree(privKey->key.rsaPrv.dP, allocLen);
-    secureZeroFree(privKey->key.rsaPrv.dQ, allocLen);
-    secureZeroFree(privKey->key.rsaPrv.qInv, allocLen);
 }
 
 // Static initialization flag
@@ -1590,51 +1454,35 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetParamet
 }
 
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey, jbyteArray privateKey, jbyteArray publicExponent) {
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey, jbyteArray privateKey) {
     if (nativeRef == 0) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");
         return;
     }
 
     CRYPT_EAL_PkeyCtx *ctx = (CRYPT_EAL_PkeyCtx *)nativeRef;
-    uint8_t *eBytes = NULL;
-    jsize eLen = 0;
-    bool releaseExponent = false;
-
-    if (publicExponent != NULL && (*env)->GetArrayLength(env, publicExponent) > 0) {
-        eLen = (*env)->GetArrayLength(env, publicExponent);
-        eBytes = (uint8_t *)(*env)->GetByteArrayElements(env, publicExponent, NULL);
-        if (eBytes == NULL) {
-            throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get public exponent bytes");
-            return;
-        }
-        releaseExponent = true;
-    }
 
     // Set the public key if provided
-    if (publicKey != NULL && eBytes != NULL && eLen > 0) {
+    if (publicKey != NULL) {
         CRYPT_EAL_PkeyPub pub;
         memset(&pub, 0, sizeof(CRYPT_EAL_PkeyPub));
         pub.id = CRYPT_PKEY_RSA;
         jsize pubKeyLen = (*env)->GetArrayLength(env, publicKey);
         pub.key.rsaPub.n = (uint8_t *)(*env)->GetByteArrayElements(env, publicKey, NULL);
         if (pub.key.rsaPub.n == NULL) {
-            if (releaseExponent) {
-                (*env)->ReleaseByteArrayElements(env, publicExponent, (jbyte *)eBytes, JNI_ABORT);
-            }
             throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get public key bytes");
             return;
         }
         pub.key.rsaPub.nLen = pubKeyLen;
-        pub.key.rsaPub.e = eBytes;
-        pub.key.rsaPub.eLen = eLen;
+
+        // Set up public exponent (65537)
+        uint8_t e[3] = {0x01, 0x00, 0x01};  // 65537 in big-endian
+        pub.key.rsaPub.e = e;
+        pub.key.rsaPub.eLen = sizeof(e);
 
         int ret = CRYPT_EAL_PkeySetPub(ctx, &pub);
         (*env)->ReleaseByteArrayElements(env, publicKey, (jbyte *)pub.key.rsaPub.n, JNI_ABORT);
         if (ret != CRYPT_SUCCESS) {
-            if (releaseExponent) {
-                (*env)->ReleaseByteArrayElements(env, publicExponent, (jbyte *)eBytes, JNI_ABORT);
-            }
             throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA public key", ret);
             return;
         }
@@ -1650,15 +1498,15 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
         jsize privKeyLen = (*env)->GetArrayLength(env, privateKey);
         prv.key.rsaPrv.d = (uint8_t *)(*env)->GetByteArrayElements(env, privateKey, NULL);
         if (prv.key.rsaPrv.d == NULL) {
-            if (releaseExponent) {
-                (*env)->ReleaseByteArrayElements(env, publicExponent, (jbyte *)eBytes, JNI_ABORT);
-            }
             throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get private key bytes");
             return;
         }
         prv.key.rsaPrv.dLen = privKeyLen;
-        prv.key.rsaPrv.e = eBytes;
-        prv.key.rsaPrv.eLen = eLen;
+
+        // Set up public exponent (65537)
+        uint8_t e[3] = {0x01, 0x00, 0x01};  // 65537 in big-endian
+        prv.key.rsaPrv.e = e;
+        prv.key.rsaPrv.eLen = sizeof(e);
 
         // Get modulus from public key if available
         if (publicKey != NULL) {
@@ -1666,9 +1514,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
             prv.key.rsaPrv.n = (uint8_t *)(*env)->GetByteArrayElements(env, publicKey, NULL);
             if (prv.key.rsaPrv.n == NULL) {
                 (*env)->ReleaseByteArrayElements(env, privateKey, (jbyte *)prv.key.rsaPrv.d, JNI_ABORT);
-                if (releaseExponent) {
-                    (*env)->ReleaseByteArrayElements(env, publicExponent, (jbyte *)eBytes, JNI_ABORT);
-                }
                 throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get modulus bytes");
                 return;
             }
@@ -1684,16 +1529,9 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
         (*env)->ReleaseByteArrayElements(env, privateKey, (jbyte *)prv.key.rsaPrv.d, JNI_ABORT);
 
         if (ret != CRYPT_SUCCESS) {
-            if (releaseExponent) {
-                (*env)->ReleaseByteArrayElements(env, publicExponent, (jbyte *)eBytes, JNI_ABORT);
-            }
             throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA private key", ret);
             return;
         }
-    }
-
-    if (releaseExponent) {
-        (*env)->ReleaseByteArrayElements(env, publicExponent, (jbyte *)eBytes, JNI_ABORT);
     }
 }
 
@@ -1746,36 +1584,16 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
     privKey.id = CRYPT_PKEY_RSA;
     privKey.key.rsaPrv.d = malloc(keyBytes);    // Same size as modulus
     privKey.key.rsaPrv.n = malloc(keyBytes);    // Same size as modulus
-    privKey.key.rsaPrv.e = malloc(keyBytes);
-    privKey.key.rsaPrv.p = malloc(keyBytes);
-    privKey.key.rsaPrv.q = malloc(keyBytes);
-    privKey.key.rsaPrv.dP = malloc(keyBytes);
-    privKey.key.rsaPrv.dQ = malloc(keyBytes);
-    privKey.key.rsaPrv.qInv = malloc(keyBytes);
-    if (privKey.key.rsaPrv.d == NULL || privKey.key.rsaPrv.n == NULL || privKey.key.rsaPrv.e == NULL ||
-            privKey.key.rsaPrv.p == NULL || privKey.key.rsaPrv.q == NULL || privKey.key.rsaPrv.dP == NULL ||
-            privKey.key.rsaPrv.dQ == NULL || privKey.key.rsaPrv.qInv == NULL) {
+    if (privKey.key.rsaPrv.d == NULL || privKey.key.rsaPrv.n == NULL) {
         free(pubKey.key.rsaPub.n);
         free(pubKey.key.rsaPub.e);
         if (privKey.key.rsaPrv.d) free(privKey.key.rsaPrv.d);
         if (privKey.key.rsaPrv.n) free(privKey.key.rsaPrv.n);
-        if (privKey.key.rsaPrv.e) free(privKey.key.rsaPrv.e);
-        if (privKey.key.rsaPrv.p) free(privKey.key.rsaPrv.p);
-        if (privKey.key.rsaPrv.q) free(privKey.key.rsaPrv.q);
-        if (privKey.key.rsaPrv.dP) free(privKey.key.rsaPrv.dP);
-        if (privKey.key.rsaPrv.dQ) free(privKey.key.rsaPrv.dQ);
-        if (privKey.key.rsaPrv.qInv) free(privKey.key.rsaPrv.qInv);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for private key");
         return NULL;
     }
     privKey.key.rsaPrv.dLen = keyBytes;
     privKey.key.rsaPrv.nLen = keyBytes;
-    privKey.key.rsaPrv.eLen = keyBytes;
-    privKey.key.rsaPrv.pLen = keyBytes;
-    privKey.key.rsaPrv.qLen = keyBytes;
-    privKey.key.rsaPrv.dPLen = keyBytes;
-    privKey.key.rsaPrv.dQLen = keyBytes;
-    privKey.key.rsaPrv.qInvLen = keyBytes;
 
     ret = CRYPT_EAL_PkeyGetPrv(ctx, &privKey);
     if (ret != CRYPT_SUCCESS) {
@@ -1783,12 +1601,6 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
         free(pubKey.key.rsaPub.e);
         secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
         secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
-        secureZeroFree(privKey.key.rsaPrv.e, privKey.key.rsaPrv.eLen);
-        secureZeroFree(privKey.key.rsaPrv.p, privKey.key.rsaPrv.pLen);
-        secureZeroFree(privKey.key.rsaPrv.q, privKey.key.rsaPrv.qLen);
-        secureZeroFree(privKey.key.rsaPrv.dP, privKey.key.rsaPrv.dPLen);
-        secureZeroFree(privKey.key.rsaPrv.dQ, privKey.key.rsaPrv.dQLen);
-        secureZeroFree(privKey.key.rsaPrv.qInv, privKey.key.rsaPrv.qInvLen);
         throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get RSA private key", ret);
         return NULL;
     }
@@ -1796,453 +1608,37 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
     // Create byte arrays for public and private keys
     jbyteArray pubKeyArray = (*env)->NewByteArray(env, pubKey.key.rsaPub.nLen);
     jbyteArray privKeyArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.dLen);
-    jbyteArray publicExponentArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.eLen);
-    jbyteArray primePArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.pLen);
-    jbyteArray primeQArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.qLen);
-    jbyteArray primeExponentPArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.dPLen);
-    jbyteArray primeExponentQArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.dQLen);
-    jbyteArray crtCoefficientArray = (*env)->NewByteArray(env, privKey.key.rsaPrv.qInvLen);
-    if (pubKeyArray == NULL || privKeyArray == NULL || publicExponentArray == NULL ||
-            primePArray == NULL || primeQArray == NULL || primeExponentPArray == NULL ||
-            primeExponentQArray == NULL || crtCoefficientArray == NULL) {
+    if (pubKeyArray == NULL || privKeyArray == NULL) {
         free(pubKey.key.rsaPub.n);
         free(pubKey.key.rsaPub.e);
         secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
         secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
-        secureZeroFree(privKey.key.rsaPrv.e, privKey.key.rsaPrv.eLen);
-        secureZeroFree(privKey.key.rsaPrv.p, privKey.key.rsaPrv.pLen);
-        secureZeroFree(privKey.key.rsaPrv.q, privKey.key.rsaPrv.qLen);
-        secureZeroFree(privKey.key.rsaPrv.dP, privKey.key.rsaPrv.dPLen);
-        secureZeroFree(privKey.key.rsaPrv.dQ, privKey.key.rsaPrv.dQLen);
-        secureZeroFree(privKey.key.rsaPrv.qInv, privKey.key.rsaPrv.qInvLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create key arrays");
         return NULL;
     }
 
     (*env)->SetByteArrayRegion(env, pubKeyArray, 0, pubKey.key.rsaPub.nLen, (jbyte *)pubKey.key.rsaPub.n);
     (*env)->SetByteArrayRegion(env, privKeyArray, 0, privKey.key.rsaPrv.dLen, (jbyte *)privKey.key.rsaPrv.d);
-    (*env)->SetByteArrayRegion(env, publicExponentArray, 0, privKey.key.rsaPrv.eLen, (jbyte *)privKey.key.rsaPrv.e);
-    (*env)->SetByteArrayRegion(env, primePArray, 0, privKey.key.rsaPrv.pLen, (jbyte *)privKey.key.rsaPrv.p);
-    (*env)->SetByteArrayRegion(env, primeQArray, 0, privKey.key.rsaPrv.qLen, (jbyte *)privKey.key.rsaPrv.q);
-    (*env)->SetByteArrayRegion(env, primeExponentPArray, 0, privKey.key.rsaPrv.dPLen, (jbyte *)privKey.key.rsaPrv.dP);
-    (*env)->SetByteArrayRegion(env, primeExponentQArray, 0, privKey.key.rsaPrv.dQLen, (jbyte *)privKey.key.rsaPrv.dQ);
-    (*env)->SetByteArrayRegion(env, crtCoefficientArray, 0, privKey.key.rsaPrv.qInvLen, (jbyte *)privKey.key.rsaPrv.qInv);
 
     // Create array of byte arrays to return both keys
-    jobjectArray result = (*env)->NewObjectArray(env, 8, (*env)->GetObjectClass(env, pubKeyArray), NULL);
+    jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->GetObjectClass(env, pubKeyArray), NULL);
     if (result == NULL) {
         free(pubKey.key.rsaPub.n);
         free(pubKey.key.rsaPub.e);
         secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
         secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
-        secureZeroFree(privKey.key.rsaPrv.e, privKey.key.rsaPrv.eLen);
-        secureZeroFree(privKey.key.rsaPrv.p, privKey.key.rsaPrv.pLen);
-        secureZeroFree(privKey.key.rsaPrv.q, privKey.key.rsaPrv.qLen);
-        secureZeroFree(privKey.key.rsaPrv.dP, privKey.key.rsaPrv.dPLen);
-        secureZeroFree(privKey.key.rsaPrv.dQ, privKey.key.rsaPrv.dQLen);
-        secureZeroFree(privKey.key.rsaPrv.qInv, privKey.key.rsaPrv.qInvLen);
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create result array");
         return NULL;
     }
 
     (*env)->SetObjectArrayElement(env, result, 0, pubKeyArray);
     (*env)->SetObjectArrayElement(env, result, 1, privKeyArray);
-    (*env)->SetObjectArrayElement(env, result, 2, publicExponentArray);
-    (*env)->SetObjectArrayElement(env, result, 3, primePArray);
-    (*env)->SetObjectArrayElement(env, result, 4, primeQArray);
-    (*env)->SetObjectArrayElement(env, result, 5, primeExponentPArray);
-    (*env)->SetObjectArrayElement(env, result, 6, primeExponentQArray);
-    (*env)->SetObjectArrayElement(env, result, 7, crtCoefficientArray);
 
     free(pubKey.key.rsaPub.n);
     free(pubKey.key.rsaPub.e);
     secureZeroFree(privKey.key.rsaPrv.d, privKey.key.rsaPrv.dLen);
     secureZeroFree(privKey.key.rsaPrv.n, privKey.key.rsaPrv.nLen);
-    secureZeroFree(privKey.key.rsaPrv.e, privKey.key.rsaPrv.eLen);
-    secureZeroFree(privKey.key.rsaPrv.p, privKey.key.rsaPrv.pLen);
-    secureZeroFree(privKey.key.rsaPrv.q, privKey.key.rsaPrv.qLen);
-    secureZeroFree(privKey.key.rsaPrv.dP, privKey.key.rsaPrv.dPLen);
-    secureZeroFree(privKey.key.rsaPrv.dQ, privKey.key.rsaPrv.dQLen);
-    secureZeroFree(privKey.key.rsaPrv.qInv, privKey.key.rsaPrv.qInvLen);
 
-    return result;
-}
-
-JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncodePublicKey
-  (JNIEnv *env, jclass cls, jbyteArray jmodulus, jbyteArray jpublicExponent) {
-    if (jmodulus == NULL || jpublicExponent == NULL) {
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "RSA public key components cannot be null");
-        return NULL;
-    }
-
-    jbyte *modulus = (*env)->GetByteArrayElements(env, jmodulus, NULL);
-    if (modulus == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get RSA modulus bytes");
-        return NULL;
-    }
-    jbyte *publicExponent = (*env)->GetByteArrayElements(env, jpublicExponent, NULL);
-    if (publicExponent == NULL) {
-        (*env)->ReleaseByteArrayElements(env, jmodulus, modulus, JNI_ABORT);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get RSA public exponent bytes");
-        return NULL;
-    }
-
-    CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_RSA);
-    if (ctx == NULL) {
-        (*env)->ReleaseByteArrayElements(env, jmodulus, modulus, JNI_ABORT);
-        (*env)->ReleaseByteArrayElements(env, jpublicExponent, publicExponent, JNI_ABORT);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create RSA context");
-        return NULL;
-    }
-
-    CRYPT_EAL_PkeyPub pub;
-    memset(&pub, 0, sizeof(pub));
-    pub.id = CRYPT_PKEY_RSA;
-    pub.key.rsaPub.n = (uint8_t *)modulus;
-    pub.key.rsaPub.nLen = (uint32_t)(*env)->GetArrayLength(env, jmodulus);
-    pub.key.rsaPub.e = (uint8_t *)publicExponent;
-    pub.key.rsaPub.eLen = (uint32_t)(*env)->GetArrayLength(env, jpublicExponent);
-
-    int32_t ret = CRYPT_EAL_PkeySetPub(ctx, &pub);
-    (*env)->ReleaseByteArrayElements(env, jmodulus, modulus, JNI_ABORT);
-    (*env)->ReleaseByteArrayElements(env, jpublicExponent, publicExponent, JNI_ABORT);
-    if (ret != CRYPT_SUCCESS) {
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA public key", ret);
-        return NULL;
-    }
-
-    BSL_Buffer encoded = {0};
-    ret = CRYPT_EAL_EncodeBuffKey(ctx, NULL, BSL_FORMAT_ASN1, CRYPT_PUBKEY_SUBKEY, &encoded);
-    CRYPT_EAL_PkeyFreeCtx(ctx);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encode RSA public key", ret);
-        return NULL;
-    }
-
-    jbyteArray result = newByteArrayFromData(env, encoded.data, encoded.dataLen);
-    BSL_SAL_FREE(encoded.data);
-    return result;
-}
-
-JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncodePrivateKey
-  (JNIEnv *env, jclass cls, jbyteArray jmodulus, jbyteArray jprivateExponent, jbyteArray jpublicExponent,
-      jbyteArray jprimeP, jbyteArray jprimeQ, jbyteArray jprimeExponentP, jbyteArray jprimeExponentQ,
-      jbyteArray jcrtCoefficient) {
-    JByteArrayRef modulus = {0};
-    JByteArrayRef privateExponent = {0};
-    JByteArrayRef publicExponent = {0};
-    JByteArrayRef primeP = {0};
-    JByteArrayRef primeQ = {0};
-    JByteArrayRef primeExponentP = {0};
-    JByteArrayRef primeExponentQ = {0};
-    JByteArrayRef crtCoefficient = {0};
-
-    if (!getByteArrayRef(env, jmodulus, &modulus, "Failed to get RSA modulus bytes", true) ||
-            !getByteArrayRef(env, jprivateExponent, &privateExponent, "Failed to get RSA private exponent bytes", true) ||
-            !getByteArrayRef(env, jpublicExponent, &publicExponent, "Failed to get RSA public exponent bytes", false) ||
-            !getByteArrayRef(env, jprimeP, &primeP, "Failed to get RSA primeP bytes", false) ||
-            !getByteArrayRef(env, jprimeQ, &primeQ, "Failed to get RSA primeQ bytes", false) ||
-            !getByteArrayRef(env, jprimeExponentP, &primeExponentP, "Failed to get RSA primeExponentP bytes", false) ||
-            !getByteArrayRef(env, jprimeExponentQ, &primeExponentQ, "Failed to get RSA primeExponentQ bytes", false) ||
-            !getByteArrayRef(env, jcrtCoefficient, &crtCoefficient, "Failed to get RSA crtCoefficient bytes", false)) {
-        releaseByteArrayRef(env, &modulus);
-        releaseByteArrayRef(env, &privateExponent);
-        releaseByteArrayRef(env, &publicExponent);
-        releaseByteArrayRef(env, &primeP);
-        releaseByteArrayRef(env, &primeQ);
-        releaseByteArrayRef(env, &primeExponentP);
-        releaseByteArrayRef(env, &primeExponentQ);
-        releaseByteArrayRef(env, &crtCoefficient);
-        return NULL;
-    }
-
-    CRYPT_EAL_PkeyCtx *ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_RSA);
-    if (ctx == NULL) {
-        releaseByteArrayRef(env, &modulus);
-        releaseByteArrayRef(env, &privateExponent);
-        releaseByteArrayRef(env, &publicExponent);
-        releaseByteArrayRef(env, &primeP);
-        releaseByteArrayRef(env, &primeQ);
-        releaseByteArrayRef(env, &primeExponentP);
-        releaseByteArrayRef(env, &primeExponentQ);
-        releaseByteArrayRef(env, &crtCoefficient);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create RSA context");
-        return NULL;
-    }
-
-    CRYPT_EAL_PkeyPub pub;
-    memset(&pub, 0, sizeof(pub));
-    pub.id = CRYPT_PKEY_RSA;
-    pub.key.rsaPub.n = (uint8_t *)modulus.bytes;
-    pub.key.rsaPub.nLen = modulus.len;
-    pub.key.rsaPub.e = (uint8_t *)publicExponent.bytes;
-    pub.key.rsaPub.eLen = publicExponent.len;
-
-    CRYPT_EAL_PkeyPrv prv;
-    memset(&prv, 0, sizeof(prv));
-    prv.id = CRYPT_PKEY_RSA;
-    prv.key.rsaPrv.n = (uint8_t *)modulus.bytes;
-    prv.key.rsaPrv.nLen = modulus.len;
-    prv.key.rsaPrv.d = (uint8_t *)privateExponent.bytes;
-    prv.key.rsaPrv.dLen = privateExponent.len;
-    prv.key.rsaPrv.e = (uint8_t *)publicExponent.bytes;
-    prv.key.rsaPrv.eLen = publicExponent.len;
-    prv.key.rsaPrv.p = (uint8_t *)primeP.bytes;
-    prv.key.rsaPrv.pLen = primeP.len;
-    prv.key.rsaPrv.q = (uint8_t *)primeQ.bytes;
-    prv.key.rsaPrv.qLen = primeQ.len;
-    prv.key.rsaPrv.dP = (uint8_t *)primeExponentP.bytes;
-    prv.key.rsaPrv.dPLen = primeExponentP.len;
-    prv.key.rsaPrv.dQ = (uint8_t *)primeExponentQ.bytes;
-    prv.key.rsaPrv.dQLen = primeExponentQ.len;
-    prv.key.rsaPrv.qInv = (uint8_t *)crtCoefficient.bytes;
-    prv.key.rsaPrv.qInvLen = crtCoefficient.len;
-
-    int32_t ret = CRYPT_SUCCESS;
-    if (publicExponent.bytes != NULL && publicExponent.len > 0) {
-        ret = CRYPT_EAL_PkeySetPub(ctx, &pub);
-    }
-    if (ret == CRYPT_SUCCESS) {
-        ret = CRYPT_EAL_PkeySetPrv(ctx, &prv);
-    }
-
-    releaseByteArrayRef(env, &modulus);
-    releaseByteArrayRef(env, &privateExponent);
-    releaseByteArrayRef(env, &publicExponent);
-    releaseByteArrayRef(env, &primeP);
-    releaseByteArrayRef(env, &primeQ);
-    releaseByteArrayRef(env, &primeExponentP);
-    releaseByteArrayRef(env, &primeExponentQ);
-    releaseByteArrayRef(env, &crtCoefficient);
-    if (ret != CRYPT_SUCCESS) {
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA private key", ret);
-        return NULL;
-    }
-
-    BSL_Buffer encoded = {0};
-    ret = CRYPT_EAL_EncodeBuffKey(ctx, NULL, BSL_FORMAT_ASN1, CRYPT_PRIKEY_PKCS8_UNENCRYPT, &encoded);
-    CRYPT_EAL_PkeyFreeCtx(ctx);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to encode RSA private key", ret);
-        return NULL;
-    }
-
-    jbyteArray result = newByteArrayFromData(env, encoded.data, encoded.dataLen);
-    BSL_SAL_ClearFree(encoded.data, encoded.dataLen);
-    return result;
-}
-
-JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecodePublicKey
-  (JNIEnv *env, jclass cls, jbyteArray jencodedKey) {
-    if (jencodedKey == NULL) {
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Encoded RSA public key cannot be null");
-        return NULL;
-    }
-
-    uint32_t encodedLen = 0;
-    uint8_t *encodedBytes = copyByteArrayWithTerminator(env, jencodedKey, &encodedLen,
-        "Failed to copy encoded RSA public key bytes");
-    if (encodedBytes == NULL) {
-        return NULL;
-    }
-
-    BSL_Buffer encoded = {encodedBytes, encodedLen};
-    CRYPT_EAL_PkeyCtx *ctx = NULL;
-    int32_t ret = CRYPT_EAL_DecodeBuffKey(BSL_FORMAT_UNKNOWN, CRYPT_PUBKEY_SUBKEY, &encoded, NULL, 0, &ctx);
-    free(encodedBytes);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to decode RSA public key", ret);
-        return NULL;
-    }
-    if (CRYPT_EAL_PkeyGetId(ctx) != CRYPT_PKEY_RSA) {
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Decoded public key is not an RSA key");
-        return NULL;
-    }
-
-    uint32_t keyBytes = CRYPT_EAL_PkeyGetKeyLen(ctx);
-    CRYPT_EAL_PkeyPub pub;
-    memset(&pub, 0, sizeof(pub));
-    pub.id = CRYPT_PKEY_RSA;
-    pub.key.rsaPub.n = malloc(keyBytes);
-    pub.key.rsaPub.e = malloc(keyBytes);
-    if (pub.key.rsaPub.n == NULL || pub.key.rsaPub.e == NULL) {
-        free(pub.key.rsaPub.n);
-        free(pub.key.rsaPub.e);
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate RSA public key buffers");
-        return NULL;
-    }
-    pub.key.rsaPub.nLen = keyBytes;
-    pub.key.rsaPub.eLen = keyBytes;
-
-    ret = CRYPT_EAL_PkeyGetPub(ctx, &pub);
-    CRYPT_EAL_PkeyFreeCtx(ctx);
-    if (ret != CRYPT_SUCCESS) {
-        free(pub.key.rsaPub.n);
-        free(pub.key.rsaPub.e);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to extract RSA public key", ret);
-        return NULL;
-    }
-
-    jobjectArray result = newByteArrayObjectArray(env, 2);
-    if (result == NULL) {
-        free(pub.key.rsaPub.n);
-        free(pub.key.rsaPub.e);
-        return NULL;
-    }
-
-    jbyteArray keyParts[2] = {
-        newByteArrayFromData(env, pub.key.rsaPub.n, pub.key.rsaPub.nLen),
-        newByteArrayFromData(env, pub.key.rsaPub.e, pub.key.rsaPub.eLen)
-    };
-    if (!allByteArraysCreated(keyParts, 2)) {
-        deleteLocalByteArrays(env, keyParts, 2);
-        free(pub.key.rsaPub.n);
-        free(pub.key.rsaPub.e);
-        return NULL;
-    }
-    (*env)->SetObjectArrayElement(env, result, 0, keyParts[0]);
-    (*env)->SetObjectArrayElement(env, result, 1, keyParts[1]);
-    deleteLocalByteArrays(env, keyParts, 2);
-
-    free(pub.key.rsaPub.n);
-    free(pub.key.rsaPub.e);
-    return result;
-}
-
-JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecodePrivateKey
-  (JNIEnv *env, jclass cls, jbyteArray jencodedKey) {
-    if (jencodedKey == NULL) {
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Encoded RSA private key cannot be null");
-        return NULL;
-    }
-
-    uint32_t encodedLen = 0;
-    uint8_t *encodedBytes = copyByteArrayWithTerminator(env, jencodedKey, &encodedLen,
-        "Failed to copy encoded RSA private key bytes");
-    if (encodedBytes == NULL) {
-        return NULL;
-    }
-
-    BSL_Buffer encoded = {encodedBytes, encodedLen};
-    CRYPT_EAL_PkeyCtx *ctx = NULL;
-    int32_t ret = CRYPT_EAL_DecodeBuffKey(BSL_FORMAT_UNKNOWN, CRYPT_ENCDEC_UNKNOW, &encoded, NULL, 0, &ctx);
-    secureZeroFree(encodedBytes, (size_t)encodedLen + 1);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to decode RSA private key", ret);
-        return NULL;
-    }
-    if (CRYPT_EAL_PkeyGetId(ctx) != CRYPT_PKEY_RSA) {
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Decoded private key is not an RSA key");
-        return NULL;
-    }
-
-    uint32_t keyBytes = CRYPT_EAL_PkeyGetKeyLen(ctx);
-    if (keyBytes == 0) {
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get RSA private key size");
-        return NULL;
-    }
-
-    CRYPT_EAL_PkeyPrv privKey;
-    memset(&privKey, 0, sizeof(privKey));
-    privKey.id = CRYPT_PKEY_RSA;
-    privKey.key.rsaPrv.n = calloc(1, keyBytes);
-    privKey.key.rsaPrv.d = calloc(1, keyBytes);
-    privKey.key.rsaPrv.e = calloc(1, keyBytes);
-    privKey.key.rsaPrv.p = calloc(1, keyBytes);
-    privKey.key.rsaPrv.q = calloc(1, keyBytes);
-    privKey.key.rsaPrv.dP = calloc(1, keyBytes);
-    privKey.key.rsaPrv.dQ = calloc(1, keyBytes);
-    privKey.key.rsaPrv.qInv = calloc(1, keyBytes);
-    if (privKey.key.rsaPrv.n == NULL || privKey.key.rsaPrv.d == NULL || privKey.key.rsaPrv.e == NULL ||
-            privKey.key.rsaPrv.p == NULL || privKey.key.rsaPrv.q == NULL || privKey.key.rsaPrv.dP == NULL ||
-            privKey.key.rsaPrv.dQ == NULL || privKey.key.rsaPrv.qInv == NULL) {
-        free(privKey.key.rsaPrv.n);
-        secureZeroFree(privKey.key.rsaPrv.d, keyBytes);
-        secureZeroFree(privKey.key.rsaPrv.e, keyBytes);
-        secureZeroFree(privKey.key.rsaPrv.p, keyBytes);
-        secureZeroFree(privKey.key.rsaPrv.q, keyBytes);
-        secureZeroFree(privKey.key.rsaPrv.dP, keyBytes);
-        secureZeroFree(privKey.key.rsaPrv.dQ, keyBytes);
-        secureZeroFree(privKey.key.rsaPrv.qInv, keyBytes);
-        CRYPT_EAL_PkeyFreeCtx(ctx);
-        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate RSA private key buffers");
-        return NULL;
-    }
-    privKey.key.rsaPrv.nLen = keyBytes;
-    privKey.key.rsaPrv.dLen = keyBytes;
-    privKey.key.rsaPrv.eLen = keyBytes;
-    privKey.key.rsaPrv.pLen = keyBytes;
-    privKey.key.rsaPrv.qLen = keyBytes;
-    privKey.key.rsaPrv.dPLen = keyBytes;
-    privKey.key.rsaPrv.dQLen = keyBytes;
-    privKey.key.rsaPrv.qInvLen = keyBytes;
-
-    ret = CRYPT_EAL_PkeyGetPrv(ctx, &privKey);
-    CRYPT_EAL_PkeyFreeCtx(ctx);
-    if (ret != CRYPT_SUCCESS) {
-        freeRsaPrivateKeyBuffers(&privKey, keyBytes);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to extract RSA private key", ret);
-        return NULL;
-    }
-
-    if (isZeroComponent(privKey.key.rsaPrv.e, privKey.key.rsaPrv.eLen)) {
-        freeRsaPrivateKeyBuffers(&privKey, keyBytes);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Decoded RSA private key does not contain public exponent");
-        return NULL;
-    }
-
-    bool pIsZero = isZeroComponent(privKey.key.rsaPrv.p, privKey.key.rsaPrv.pLen);
-    bool qIsZero = isZeroComponent(privKey.key.rsaPrv.q, privKey.key.rsaPrv.qLen);
-    bool dPIsZero = isZeroComponent(privKey.key.rsaPrv.dP, privKey.key.rsaPrv.dPLen);
-    bool dQIsZero = isZeroComponent(privKey.key.rsaPrv.dQ, privKey.key.rsaPrv.dQLen);
-    bool qInvIsZero = isZeroComponent(privKey.key.rsaPrv.qInv, privKey.key.rsaPrv.qInvLen);
-    bool hasCrt = !(pIsZero && qIsZero && dPIsZero && dQIsZero && qInvIsZero);
-    bool hasCompleteCrt = !(pIsZero || qIsZero || dPIsZero || dQIsZero || qInvIsZero);
-    if (hasCrt && !hasCompleteCrt) {
-        freeRsaPrivateKeyBuffers(&privKey, keyBytes);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Decoded RSA private key contains incomplete CRT parameters");
-        return NULL;
-    }
-
-    size_t partCount = hasCrt ? 8 : 3;
-    jobjectArray result = newByteArrayObjectArray(env, (jsize)partCount);
-    if (result == NULL) {
-        freeRsaPrivateKeyBuffers(&privKey, keyBytes);
-        return NULL;
-    }
-
-    const uint8_t *partData[8] = {
-        privKey.key.rsaPrv.n, privKey.key.rsaPrv.d, privKey.key.rsaPrv.e,
-        privKey.key.rsaPrv.p, privKey.key.rsaPrv.q, privKey.key.rsaPrv.dP,
-        privKey.key.rsaPrv.dQ, privKey.key.rsaPrv.qInv
-    };
-    uint32_t partLens[8] = {
-        privKey.key.rsaPrv.nLen, privKey.key.rsaPrv.dLen, privKey.key.rsaPrv.eLen,
-        privKey.key.rsaPrv.pLen, privKey.key.rsaPrv.qLen, privKey.key.rsaPrv.dPLen,
-        privKey.key.rsaPrv.dQLen, privKey.key.rsaPrv.qInvLen
-    };
-    jbyteArray keyParts[8] = {0};
-    for (size_t i = 0; i < partCount; i++) {
-        keyParts[i] = newByteArrayFromData(env, partData[i], partLens[i]);
-    }
-    if (!allByteArraysCreated(keyParts, partCount)) {
-        deleteLocalByteArrays(env, keyParts, partCount);
-        freeRsaPrivateKeyBuffers(&privKey, keyBytes);
-        return NULL;
-    }
-
-    for (size_t i = 0; i < partCount; i++) {
-        (*env)->SetObjectArrayElement(env, result, (jsize)i, keyParts[i]);
-    }
-    deleteLocalByteArrays(env, keyParts, partCount);
-
-    freeRsaPrivateKeyBuffers(&privKey, keyBytes);
     return result;
 }
 

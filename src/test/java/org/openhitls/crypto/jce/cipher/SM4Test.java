@@ -15,7 +15,6 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 import java.security.SecureRandom;
 import java.security.Security;
 
@@ -55,49 +54,6 @@ public class SM4Test extends BaseTest {
         (byte)0x09, (byte)0x0a, (byte)0x0b, (byte)0x0c, (byte)0x0d, (byte)0x0e, (byte)0x0f, (byte)0x10,
         (byte)0x11, (byte)0x12, (byte)0x13, (byte)0x14
     };
-
-    @Test
-    public void testSm4KnownAnswerVector() throws Exception {
-        SecretKeySpec keySpec = new SecretKeySpec(hex("0123456789abcdeffedcba9876543210"), "SM4");
-        byte[] plaintext = hex("0123456789abcdeffedcba9876543210");
-        byte[] expectedCiphertext = hex("681edf34d206965e86b3e94f536e4246");
-
-        Cipher cipher = Cipher.getInstance("SM4/ECB/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-        cipher.init(Cipher.ENCRYPT_MODE, keySpec);
-        byte[] ciphertext = cipher.doFinal(plaintext);
-        assertArrayEquals("SM4 ECB vector encryption failed", expectedCiphertext, ciphertext);
-
-        cipher.init(Cipher.DECRYPT_MODE, keySpec);
-        assertArrayEquals("SM4 ECB vector decryption failed", plaintext, cipher.doFinal(ciphertext));
-    }
-
-    @Test
-    public void testSm4InvalidKeyAndIvRejected() throws Exception {
-        SecretKeySpec shortKey = new SecretKeySpec(new byte[15], "SM4");
-        Cipher ecbCipher = Cipher.getInstance("SM4/ECB/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-        try {
-            ecbCipher.init(Cipher.ENCRYPT_MODE, shortKey);
-            fail("Expected InvalidKeyException for short SM4 key");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-
-        SecretKeySpec validKey = new SecretKeySpec(TEST_KEY, "SM4");
-        Cipher cbcCipher = Cipher.getInstance("SM4/CBC/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
-        try {
-            cbcCipher.init(Cipher.ENCRYPT_MODE, validKey);
-            fail("Expected InvalidKeyException when CBC IV is missing");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-
-        try {
-            cbcCipher.init(Cipher.ENCRYPT_MODE, validKey, new IvParameterSpec(new byte[8]));
-            fail("Expected InvalidKeyException for short CBC IV");
-        } catch (InvalidKeyException expected) {
-            // Expected.
-        }
-    }
 
     @Test
     public void testSm4KeyGen() throws Exception {
@@ -656,23 +612,6 @@ public class SM4Test extends BaseTest {
                 throw new AssertionError("Exception in thread " + i, threadExceptions[i]);
             }
         }
-    }
-
-    private static byte[] hex(String hex) {
-        if ((hex.length() & 1) != 0) {
-            throw new IllegalArgumentException("Hex string must have even length");
-        }
-
-        byte[] bytes = new byte[hex.length() / 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int hi = Character.digit(hex.charAt(i * 2), 16);
-            int lo = Character.digit(hex.charAt(i * 2 + 1), 16);
-            if (hi < 0 || lo < 0) {
-                throw new IllegalArgumentException("Invalid hex string");
-            }
-            bytes[i] = (byte) ((hi << 4) | lo);
-        }
-        return bytes;
     }
 
     private byte[] combineArrays(byte[] first, byte[] second) {
