@@ -61,17 +61,37 @@ HiTLS4J provides the following cryptographic functionalities:
    cd hitls4j
    ```
 
-2. Configure the openHiTLS root directory in `pom.xml`:
-   ```xml
-   <properties>
-       <openhitls.root>/path/to/openhitls</openhitls.root>
-   </properties>
+2. Configure the openHiTLS root directory for Maven:
    ```
+   export OPENHITLS_ROOT=/path/to/openhitls
+   ```
+
+   You can also pass `-Dopenhitls.root=/path/to/openhitls` to Maven, or add
+   `-Dopenhitls.root=/path/to/openhitls` to `.mvn/maven.config`.
+   This setting is used at build time to find openHiTLS headers and libraries.
 
 3. Build the project:
    ```
    mvn clean package
    ```
+
+### Native Library Loading
+
+At runtime, `OPENHITLS_ROOT` and `openhitls.root` are not treated as native
+library directories and are not used to locate hitls4j's JNI library.
+
+When running from a local build, pass the complete native output directory:
+
+```
+java -Dopenhitls.native.path=target/native ...
+```
+
+The directory configured by `openhitls.native.path` must contain both
+`libhitls_crypto_jni.so` and the required openHiTLS shared libraries.
+If no native path is configured, HiTLS4J falls back to packaged native libraries.
+Packaged native libraries are stored directly under `META-INF/native`; each JAR
+contains one native build and does not select an architecture-specific
+subdirectory at runtime.
 
 ## Usage
 
@@ -177,6 +197,24 @@ signature.initVerify(keyPair.getPublic());
 signature.update(data);
 boolean valid = signature.verify(signatureBytes);
 ```
+
+### RSA Key Encoding and Decoding
+
+RSA key import and export are part of the HiTLS4J provider contract. RSA public
+keys support X.509 `SubjectPublicKeyInfo` encoding, and RSA private keys use
+PKCS#8 encoding. Encoded RSA keys are accepted through standard JCE key
+specifications such as `X509EncodedKeySpec`, `PKCS8EncodedKeySpec`,
+`RSAPublicKeySpec`, and `RSAPrivateKeySpec`.
+
+RSA public key DER operations and RSA private key PKCS#8 encoding use the
+openHiTLS key codec APIs (`CRYPT_EAL_EncodeBuffKey` and
+`CRYPT_EAL_DecodeBuffKey`). RSA private keys with `n`, `e`, and `d` but without
+CRT parameters are PKCS#8 encodable and decodable. Minimal private keys imported
+from `RSAPrivateKeySpec` with only `n` and `d` keep the public exponent unknown;
+HiTLS4J does not synthesize 65537 for those keys, does not advertise a PKCS#8
+encoding for them, and rejects private-key operations that require `e`. HiTLS4J
+does not require vendor-specific JDK providers, such as `SunRsaSign`, for RSA
+key parsing or re-encoding.
 
 ### Using ECDSA Signatures
 
@@ -287,8 +325,11 @@ byte[] receiverSharedKey = kaReceiver.generateSecret();
 - `HMACSM3`
 
 ### Signature Algorithms
-- `SHA224withRSA`, `SHA256withRSA`, `SHA384withRSA`, `SHA512withRSA`, `SM3withRSA`
-- `SHA224withRSA/PSS`, `SHA256withRSA/PSS`, `SHA384withRSA/PSS`, `SHA512withRSA/PSS`, `SM3withRSA/PSS`
+- `SHA1withRSA`, `SHA224withRSA`, `SHA256withRSA`, `SHA384withRSA`, `SHA512withRSA`, `SM3withRSA`
+- RSA aliases: `SHA1withRSAEncryption`, `SHA224withRSAEncryption`, `SHA256withRSAEncryption`, `SHA384withRSAEncryption`, `SHA512withRSAEncryption`
+- RSA OID aliases: `1.2.840.113549.1.1.5`, `1.2.840.113549.1.1.14`, `1.2.840.113549.1.1.11`, `1.2.840.113549.1.1.12`, `1.2.840.113549.1.1.13`
+- `SHA224withRSA/PSS`, `SHA256withRSA/PSS`, `SHA384withRSA/PSS`, `SHA512withRSA/PSS`
+- `SM3withRSA/PSS` is not supported because the native RSA-PSS parameter path rejects SM3.
 - `SHA256withECDSA`, `SHA384withECDSA`, `SHA512withECDSA`
 - `SM3withSM2`
 

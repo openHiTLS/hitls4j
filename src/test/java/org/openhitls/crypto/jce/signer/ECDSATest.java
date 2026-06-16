@@ -60,6 +60,42 @@ public class ECDSATest extends BaseTest {
         testKeyRestoreForCurve("secp384r1", P384_Qx, P384_Qy, P384_D);
     }
 
+    @Test
+    public void testRestoredVectorKeysCanSignAndVerify() throws Exception {
+        testRestoredVectorKeySignVerify("secp256r1", P256_Qx, P256_Qy, P256_D, "SHA256withECDSA");
+        testRestoredVectorKeySignVerify("secp384r1", P384_Qx, P384_Qy, P384_D, "SHA384withECDSA");
+    }
+
+    private void testRestoredVectorKeySignVerify(String curveName, String xHex, String yHex,
+            String privateHex, String signatureAlgorithm) throws Exception {
+        ECPoint w = new ECPoint(new BigInteger(xHex, 16), new BigInteger(yHex, 16));
+        AlgorithmParameters params = AlgorithmParameters.getInstance("EC", HiTls4jProvider.PROVIDER_NAME);
+        params.init(new ECGenParameterSpec(curveName));
+        ECParameterSpec ecParameterSpec = params.getParameterSpec(ECParameterSpec.class);
+        KeyFactory keyFactory = KeyFactory.getInstance("EC", HiTls4jProvider.PROVIDER_NAME);
+
+        PublicKey pubKey = keyFactory.generatePublic(new ECPublicKeySpec(w, ecParameterSpec));
+        PrivateKey privKey = keyFactory.generatePrivate(
+                new ECPrivateKeySpec(new BigInteger(privateHex, 16), ecParameterSpec));
+        byte[] message = ("vector-key-signature-" + curveName).getBytes(StandardCharsets.UTF_8);
+
+        Signature signer = Signature.getInstance(signatureAlgorithm, HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(privKey);
+        signer.update(message);
+        byte[] signature = signer.sign();
+
+        Signature verifier = Signature.getInstance(signatureAlgorithm, HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(pubKey);
+        verifier.update(message);
+        assertTrue("Restored vector key signature should verify for " + curveName, verifier.verify(signature));
+
+        message[0] ^= 0x01;
+        verifier.initVerify(pubKey);
+        verifier.update(message);
+        assertFalse("Restored vector key signature should reject tampered data for " + curveName,
+                verifier.verify(signature));
+    }
+
     private void testKeyRestoreForCurve(String curveName, String xHex, String yHex, String privateHex)
             throws Exception {
         // Create ECPoint from coordinates
@@ -302,6 +338,55 @@ public class ECDSATest extends BaseTest {
         verifier.initVerify(keyPair.getPublic());
         verifier.update(message);
         assertFalse("Signature verification should fail with different userId", verifier.verify(signature));
+    }
+
+    @Test
+    public void testECDSARequiresInitialization() throws Exception {
+        Signature signature = Signature.getInstance("SHA256withECDSA", HiTls4jProvider.PROVIDER_NAME);
+        byte[] data = "data".getBytes(StandardCharsets.UTF_8);
+
+        try {
+            signature.update(data);
+            fail("Expected SignatureException before init");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.sign();
+            fail("Expected SignatureException before initSign");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.verify(new byte[64]);
+            fail("Expected SignatureException before initVerify");
+        } catch (SignatureException expected) {
+            // Expected.
+        }
+    }
+
+    @Test
+    public void testECDSARejectsWrongKeyTypes() throws Exception {
+        KeyPairGenerator rsaKeyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
+        rsaKeyGen.initialize(2048);
+        KeyPair rsaKeyPair = rsaKeyGen.generateKeyPair();
+        Signature signature = Signature.getInstance("SHA256withECDSA", HiTls4jProvider.PROVIDER_NAME);
+
+        try {
+            signature.initSign(rsaKeyPair.getPrivate());
+            fail("Expected InvalidKeyException for RSA private key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+
+        try {
+            signature.initVerify(rsaKeyPair.getPublic());
+            fail("Expected InvalidKeyException for RSA public key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
     }
 
     private String getSignatureAlgorithm(String curve) throws IllegalArgumentException {

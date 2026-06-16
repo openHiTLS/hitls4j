@@ -306,10 +306,10 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetParamet
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    rsaSetKeys
- * Signature: (J[B[B)V
+ * Signature: (J[B[B[B)V
  */
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
-  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray);
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jbyteArray);
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
@@ -358,6 +358,38 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncr
  */
 JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecrypt
   (JNIEnv *, jclass, jlong, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaEncodePublicKey
+ * Signature: ([B[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncodePublicKey
+  (JNIEnv *, jclass, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaEncodePrivateKey
+ * Signature: ([B[B[B[B[B[B[B[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaEncodePrivateKey
+  (JNIEnv *, jclass, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaDecodePublicKey
+ * Signature: ([B)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecodePublicKey
+  (JNIEnv *, jclass, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaDecodePrivateKey
+ * Signature: ([B)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaDecodePrivateKey
+  (JNIEnv *, jclass, jbyteArray);
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
@@ -581,6 +613,102 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetCxt
  * Signature: (J[B)V
  */
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetAdditionalRandomness
+  (JNIEnv *, jclass, jlong, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    frodoKemCreateContext
+ * Signature: (Ljava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemCreateContext
+  (JNIEnv *, jclass, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    frodoKemGenerateKeyPair
+ * Signature: (JLjava/lang/String;)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemGenerateKeyPair
+  (JNIEnv *, jclass, jlong, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    frodoKemSetKeys
+ * Signature: (J[B[B)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemSetKeys
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    frodoKemFreeContext
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemFreeContext
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    frodoKemEncapsulate
+ * Signature: (J)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemEncapsulate
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    frodoKemDecapsulate
+ * Signature: (J[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_frodoKemDecapsulate
+  (JNIEnv *, jclass, jlong, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    mcelieceCreateContext
+ * Signature: (Ljava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceCreateContext
+  (JNIEnv *, jclass, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    mcelieceGenerateKeyPair
+ * Signature: (JLjava/lang/String;)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceGenerateKeyPair
+  (JNIEnv *, jclass, jlong, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    mcelieceSetKeys
+ * Signature: (J[B[B)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceSetKeys
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    mcelieceFreeContext
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceFreeContext
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    mcelieceEncapsulate
+ * Signature: (J)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceEncapsulate
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    mcelieceDecapsulate
+ * Signature: (J[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_mcelieceDecapsulate
   (JNIEnv *, jclass, jlong, jbyteArray);
 
 #ifdef __cplusplus

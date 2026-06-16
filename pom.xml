@@ -26,8 +26,24 @@
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <openhitls.root>/root/openhitls</openhitls.root>
+        <openhitls.root></openhitls.root>
+        <openhitls.lib.dir>${openhitls.root}/build</openhitls.lib.dir>
+        <openhitls.build.include.dir>${openhitls.root}/build/include</openhitls.build.include.dir>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>openhitls-root-from-env</id>
+            <activation>
+                <property>
+                    <name>env.OPENHITLS_ROOT</name>
+                </property>
+            </activation>
+            <properties>
+                <openhitls.root>${env.OPENHITLS_ROOT}</openhitls.root>
+            </properties>
+        </profile>
+    </profiles>
 
 <build>
     <plugins>
@@ -42,10 +58,59 @@
                     <phase>compile</phase>
                     <configuration>
                         <target>
+                            <fail message="未设置 OPENHITLS_ROOT 或 -Dopenhitls.root。请设置 OPENHITLS_ROOT=/path/to/openhitls 或传入 -Dopenhitls.root=/path/to/openhitls。">
+                                <condition>
+                                    <equals arg1="${openhitls.root}" arg2=""/>
+                                </condition>
+                            </fail>
+                            <fail message="OPENHITLS_ROOT or -Dopenhitls.root must point to a valid OpenHiTLS root, not '${openhitls.root}'.">
+                                <condition>
+                                    <or>
+                                        <equals arg1="${openhitls.root}" arg2=""/>
+                                        <equals arg1="${openhitls.root}" arg2="/"/>
+                                        <not>
+                                            <available file="${openhitls.root}" type="dir"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.root}/include" type="dir"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.root}/include/bsl" type="dir"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.root}/include/crypto" type="dir"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.lib.dir}" type="dir"/>
+                                        </not>
+                                    </or>
+                                </condition>
+                            </fail>
+                            <fail message="OpenHiTLS build output '${openhitls.lib.dir}' must contain libhitls_bsl.so, libhitls_crypto.so, libhitls_auth.so, libhitls_pki.so, and libhitls_tls.so.">
+                                <condition>
+                                    <or>
+                                        <not>
+                                            <available file="${openhitls.lib.dir}/libhitls_bsl.so" type="file"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.lib.dir}/libhitls_crypto.so" type="file"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.lib.dir}/libhitls_auth.so" type="file"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.lib.dir}/libhitls_pki.so" type="file"/>
+                                        </not>
+                                        <not>
+                                            <available file="${openhitls.lib.dir}/libhitls_tls.so" type="file"/>
+                                        </not>
+                                    </or>
+                                </condition>
+                            </fail>
                             <mkdir dir="${project.build.directory}/native"/>
                             <!-- Copy required native libraries from openhitls build directory -->
                             <copy todir="${project.build.directory}/native" flatten="true">
-                                <fileset dir="${openhitls.root}/build" includes="libhitls_bsl.so,libhitls_crypto.so,libhitls_auth.so,libhitls_pki.so,libhitls_tls.so"/>
+                                <fileset dir="${openhitls.lib.dir}" includes="libhitls_*.so"/>
                             </copy>
                             <!-- Compile JNI code -->
                             <exec executable="gcc" failonerror="true">
@@ -59,7 +124,7 @@
                                 <arg value="-I${openhitls.root}/include"/>
                                 <arg value="-I${openhitls.root}/include/bsl"/>
                                 <arg value="-I${openhitls.root}/include/crypto"/>
-                                <arg value="-I${openhitls.root}/build/include"/>
+                                <arg value="-I${openhitls.build.include.dir}"/>
                                 <arg value="${basedir}/src/main/native/crypto_native_jni.c"/>
                                 <arg value="-o"/>
                                 <arg value="${project.build.directory}/native/crypto_native_jni.o"/>
@@ -98,7 +163,7 @@
                         <goal>copy-resources</goal>
                     </goals>
                     <configuration>
-                        <outputDirectory>${project.build.outputDirectory}/META-INF/native/linux-x86_64</outputDirectory>
+                        <outputDirectory>${project.build.outputDirectory}/META-INF/native</outputDirectory>
                         <resources>
                             <resource>
                                 <directory>${project.build.directory}/native</directory>
@@ -110,6 +175,17 @@
                     </configuration>
                 </execution>
             </executions>
+        </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>2.12.4</version>
+            <configuration>
+                <systemPropertyVariables>
+                    <openhitls.root>${openhitls.root}</openhitls.root>
+                    <openhitls.native.path>${project.build.directory}/native</openhitls.native.path>
+                </systemPropertyVariables>
+            </configuration>
         </plugin>
     </plugins>
 </build>
