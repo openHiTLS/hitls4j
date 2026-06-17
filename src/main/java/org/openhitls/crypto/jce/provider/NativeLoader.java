@@ -15,6 +15,7 @@ public class NativeLoader {
     private static final String[] OPENHITLS_LIBRARIES = {
         "libhitls_bsl.so",
         "libhitls_crypto.so",
+        "libhitls_auth.so",
         "libhitls_pki.so",
         "libhitls_tls.so"
     };
@@ -103,12 +104,30 @@ public class NativeLoader {
             Path tempDir = createPrivateTempDirectory();
             tempDir.toFile().deleteOnExit();
 
-            for (String library : OPENHITLS_LIBRARIES) {
-                extractLibrary(library, tempDir);
-            }
-            extractLibrary(JNI_LIBRARY, tempDir);
+            String[] libNames = {
+                "libhitls_bsl.so",
+                "libhitls_crypto.so",
+                "libhitls_auth.so",
+                "libhitls_pki.so",
+                "libhitls_tls.so",
+                "libhitls_crypto_jni.so"
+            };
 
-            loadOpenHiTLSLibrariesUnchecked(tempDir.toFile());
+            File jniFile = null;
+
+            for (String libName : libNames) {
+                File tempFile = extractLibrary(libName, tempDir);
+                if ("libhitls_crypto_jni.so".equals(libName)) {
+                    jniFile = tempFile;
+                } else {
+                    System.load(tempFile.getAbsolutePath());
+                }
+            }
+
+            if (jniFile == null) {
+                throw new UnsatisfiedLinkError("Native JNI library not found in JAR");
+            }
+
             loadJniLibrary(tempDir);
         } catch (IOException e) {
             throw new RuntimeException("Failed to load native library", e);
@@ -130,7 +149,7 @@ public class NativeLoader {
         System.load(directory.resolve(JNI_LIBRARY).toAbsolutePath().toString());
     }
 
-    private static void extractLibrary(String libName, Path tempDir) throws IOException {
+    private static File extractLibrary(String libName, Path tempDir) throws IOException {
         String libPath = "/META-INF/native/" + libName;
 
         try (InputStream in = NativeLoader.class.getResourceAsStream(libPath)) {
@@ -143,6 +162,7 @@ public class NativeLoader {
             Path tempPath = tempFile.toPath();
             Files.copy(in, tempPath, StandardCopyOption.REPLACE_EXISTING);
             setOwnerOnlyPermissions(tempPath);
+            return tempFile;
         }
     }
 
@@ -151,7 +171,6 @@ public class NativeLoader {
             Files.setPosixFilePermissions(path, OWNER_ONLY_PERMISSIONS);
             return;
         } catch (UnsupportedOperationException e) {
-            // Fall back to java.io.File permissions on non-POSIX file systems.
         } catch (IOException e) {
             throw e;
         } catch (SecurityException e) {

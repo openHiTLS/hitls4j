@@ -122,4 +122,39 @@ public class CryptoNative {
     public static native byte[][] mcelieceEncapsulate(long nativeRef);
     public static native byte[] mcelieceDecapsulate(long nativeRef, byte[] encryptedData);
 
+    // LMS native methods
+    public static native long lmsCreateContext(String lmsType, String otsType);
+    public static native byte[][] lmsGenerateKeyPair(long nativeRef);
+    public static native void lmsSetPublicKey(long nativeRef, byte[] publicKey);
+    public static native void lmsSetPrivateKey(long nativeRef, byte[] privateKey);
+    public static native byte[][] lmsSignAndExportState(long nativeRef, byte[] data, int hashAlgorithm);
+    public static native boolean lmsVerify(long nativeRef, byte[] data, byte[] signature, int hashAlgorithm);
+    public static native void lmsFreeContext(long nativeRef);
+
+    // HSS native methods
+    public static native long hssCreateContext(String[] lmsTypes, String[] otsTypes);
+    public static native byte[][] hssGenerateKeyPair(long nativeRef);
+    public static native void hssSetPublicKey(long nativeRef, byte[] publicKey);
+    public static native void hssSetPrivateKey(long nativeRef, byte[] privateKey);
+    public static native byte[][] hssSignAndExportState(long nativeRef, byte[] data, int hashAlgorithm);
+    public static native boolean hssVerify(long nativeRef, byte[] data, byte[] signature, int hashAlgorithm);
+    public static native void hssFreeContext(long nativeRef);
+
+    // XMSS native methods
+    public static native long xmssCreateContext(String parameterSet);
+    public static native byte[][] xmssGenerateKeyPair(long nativeRef);
+    public static native void xmssSetPublicKey(long nativeRef, byte[] publicKey);
+    public static native void xmssSetPrivateKey(long nativeRef, byte[] privateKey);
+    public static native byte[][] xmssSignAndExportState(long nativeRef, byte[] data);
+    public static native boolean xmssVerify(long nativeRef, byte[] data, byte[] signature);
+    public static native void xmssFreeContext(long nativeRef);
+
+    // XMSSMT native methods
+    public static native long xmssmtCreateContext(String parameterSet);
+    public static native byte[][] xmssmtGenerateKeyPair(long nativeRef);
+    public static native void xmssmtSetPublicKey(long nativeRef, byte[] publicKey);
+    public static native void xmssmtSetPrivateKey(long nativeRef, byte[] privateKey);
+    public static native byte[][] xmssmtSignAndExportState(long nativeRef, byte[] data);
+    public static native boolean xmssmtVerify(long nativeRef, byte[] data, byte[] signature);
+    public static native void xmssmtFreeContext(long nativeRef);
 }
