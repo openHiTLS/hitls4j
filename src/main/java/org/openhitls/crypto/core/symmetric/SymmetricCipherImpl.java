@@ -61,7 +61,7 @@ public class SymmetricCipherImpl extends NativeResource {
             }
         }
         long contextPtr = CryptoNative.symmetricCipherInit(algorithm, cipherMode, key, iv, mode);
-        // Only set padding for block cipher modes (ECB and CBC)
+        // Only ECB/CBC support explicit padding control.
         if ("ECB".equals(cipherMode) || "CBC".equals(cipherMode)) {
             CryptoNative.symmetricCipherSetPadding(contextPtr, padding);
         }
