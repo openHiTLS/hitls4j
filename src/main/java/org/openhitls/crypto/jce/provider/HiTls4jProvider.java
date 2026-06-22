@@ -254,5 +254,31 @@ public final class HiTls4jProvider extends Provider {
         put("AlgorithmParameters.Classic-McEliece", "org.openhitls.crypto.jce.param.McElieceParameters");
         put("KeyFactory.Classic-McEliece", "org.openhitls.crypto.jce.key.factory.McElieceKeyFactory");
         put("KeyAgreement.Classic-McEliece", "org.openhitls.crypto.jce.keyagreement.McElieceKeyAgreement");
+
+        put("KeyPairGenerator.LMS", "org.openhitls.crypto.jce.key.generator.LMSKeyPairGenerator");
+        put("AlgorithmParameters.LMS", "org.openhitls.crypto.jce.param.LMSParameters");
+        put("KeyFactory.LMS", "org.openhitls.crypto.jce.key.factory.LMSKeyFactory");
+        put("Signature.LMS", "org.openhitls.crypto.jce.signer.LMSSigner");
+        put("Signature.SHA256withLMS", "org.openhitls.crypto.jce.signer.LMSSigner");
+
+        put("KeyPairGenerator.HSS", "org.openhitls.crypto.jce.key.generator.HSSKeyPairGenerator");
+        put("AlgorithmParameters.HSS", "org.openhitls.crypto.jce.param.HSSParameters");
+        put("KeyFactory.HSS", "org.openhitls.crypto.jce.key.factory.HSSKeyFactory");
+        put("Signature.HSS", "org.openhitls.crypto.jce.signer.HSSSigner");
+        put("Signature.SHA256withHSS", "org.openhitls.crypto.jce.signer.HSSSigner");
+
+        put("KeyPairGenerator.XMSS", "org.openhitls.crypto.jce.key.generator.XMSSKeyPairGenerator");
+        put("AlgorithmParameters.XMSS", "org.openhitls.crypto.jce.param.XMSSParameters");
+        put("KeyFactory.XMSS", "org.openhitls.crypto.jce.key.factory.XMSSKeyFactory");
+        put("Signature.XMSS", "org.openhitls.crypto.jce.signer.XMSSSigner");
+
+        put("KeyPairGenerator.XMSSMT", "org.openhitls.crypto.jce.key.generator.XMSSMTKeyPairGenerator");
+        put("AlgorithmParameters.XMSSMT", "org.openhitls.crypto.jce.param.XMSSMTParameters");
+        put("KeyFactory.XMSSMT", "org.openhitls.crypto.jce.key.factory.XMSSMTKeyFactory");
+        put("Signature.XMSSMT", "org.openhitls.crypto.jce.signer.XMSSMTSigner");
+        put("Alg.Alias.Signature.XMSS^MT", "XMSSMT");
+        put("Alg.Alias.KeyPairGenerator.XMSS^MT", "XMSSMT");
+        put("Alg.Alias.KeyFactory.XMSS^MT", "XMSSMT");
+        put("Alg.Alias.AlgorithmParameters.XMSS^MT", "XMSSMT");
     }
 }

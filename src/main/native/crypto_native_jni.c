@@ -4753,3 +4753,1002 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_jce_provider_ProviderConfig_unl
     freeProviderStateNoLock();
     pthread_mutex_unlock(&g_init_mutex);
 }
+
+// ==================== Stateful hash-based signatures ====================
+
+#ifndef CRYPT_LMS_SHA256_M32_H5
+#define CRYPT_LMS_SHA256_M32_H5  0x00000005u
+#define CRYPT_LMS_SHA256_M32_H10 0x00000006u
+#define CRYPT_LMS_SHA256_M32_H15 0x00000007u
+#define CRYPT_LMS_SHA256_M32_H20 0x00000008u
+#define CRYPT_LMS_SHA256_M32_H25 0x00000009u
+#endif
+
+#ifndef CRYPT_LMOTS_SHA256_N32_W1
+#define CRYPT_LMOTS_SHA256_N32_W1 0x00000001u
+#define CRYPT_LMOTS_SHA256_N32_W2 0x00000002u
+#define CRYPT_LMOTS_SHA256_N32_W4 0x00000003u
+#define CRYPT_LMOTS_SHA256_N32_W8 0x00000004u
+#endif
+
+#ifndef CRYPT_CTRL_LMS_SET_TYPE
+#define CRYPT_CTRL_LMS_SET_TYPE       900
+#define CRYPT_CTRL_LMS_SET_OTS_TYPE   901
+#define CRYPT_CTRL_LMS_GET_PUBKEY_LEN 902
+#define CRYPT_CTRL_LMS_GET_PRVKEY_LEN 903
+#define CRYPT_CTRL_LMS_GET_SIG_LEN    904
+#endif
+
+#ifndef CRYPT_CTRL_HSS_SET_LEVELS
+#define CRYPT_CTRL_HSS_SET_LEVELS     950
+#define CRYPT_CTRL_HSS_SET_LMS_TYPE   951
+#define CRYPT_CTRL_HSS_SET_OTS_TYPE   952
+#define CRYPT_CTRL_HSS_GET_PUBKEY_LEN 953
+#define CRYPT_CTRL_HSS_GET_PRVKEY_LEN 954
+#define CRYPT_CTRL_HSS_GET_SIG_LEN    955
+#endif
+
+#define HBS_XMSS_PUB_BLOB_VERSION 1u
+#define HBS_XMSS_PRV_BLOB_VERSION 1u
+#define HBS_XMSS_PUB_HEADER_LEN 12u
+#define HBS_XMSS_PRV_HEADER_LEN 20u
+
+static int getLmsTypeId(const char *typeName) {
+    if (typeName == NULL) {
+        return -1;
+    }
+    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H5") == 0) {
+        return CRYPT_LMS_SHA256_M32_H5;
+    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H10") == 0) {
+        return CRYPT_LMS_SHA256_M32_H10;
+    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H15") == 0) {
+        return CRYPT_LMS_SHA256_M32_H15;
+    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H20") == 0) {
+        return CRYPT_LMS_SHA256_M32_H20;
+    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H25") == 0) {
+        return CRYPT_LMS_SHA256_M32_H25;
+    }
+    return -1;
+}
+
+static int getLmotsTypeId(const char *typeName) {
+    if (typeName == NULL) {
+        return -1;
+    }
+    if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W1") == 0) {
+        return CRYPT_LMOTS_SHA256_N32_W1;
+    } else if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W2") == 0) {
+        return CRYPT_LMOTS_SHA256_N32_W2;
+    } else if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W4") == 0) {
+        return CRYPT_LMOTS_SHA256_N32_W4;
+    } else if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W8") == 0) {
+        return CRYPT_LMOTS_SHA256_N32_W8;
+    }
+    return -1;
+}
+
+static int getXmssParamId(const char *parameterSet) {
+    if (parameterSet == NULL) {
+        return -1;
+    }
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_10_256") == 0) return CRYPT_XMSS_SHA2_10_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_16_256") == 0) return CRYPT_XMSS_SHA2_16_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_20_256") == 0) return CRYPT_XMSS_SHA2_20_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_10_512") == 0) return CRYPT_XMSS_SHA2_10_512;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_16_512") == 0) return CRYPT_XMSS_SHA2_16_512;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_20_512") == 0) return CRYPT_XMSS_SHA2_20_512;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE_10_256") == 0) return CRYPT_XMSS_SHAKE_10_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE_16_256") == 0) return CRYPT_XMSS_SHAKE_16_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE_20_256") == 0) return CRYPT_XMSS_SHAKE_20_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE_10_512") == 0) return CRYPT_XMSS_SHAKE_10_512;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE_16_512") == 0) return CRYPT_XMSS_SHAKE_16_512;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE_20_512") == 0) return CRYPT_XMSS_SHAKE_20_512;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_10_192") == 0) return CRYPT_XMSS_SHA2_10_192;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_16_192") == 0) return CRYPT_XMSS_SHA2_16_192;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHA2_20_192") == 0) return CRYPT_XMSS_SHA2_20_192;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE256_10_256") == 0) return CRYPT_XMSS_SHAKE256_10_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE256_16_256") == 0) return CRYPT_XMSS_SHAKE256_16_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE256_20_256") == 0) return CRYPT_XMSS_SHAKE256_20_256;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE256_10_192") == 0) return CRYPT_XMSS_SHAKE256_10_192;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE256_16_192") == 0) return CRYPT_XMSS_SHAKE256_16_192;
+    if (strcmp(parameterSet, "CRYPT_XMSS_SHAKE256_20_192") == 0) return CRYPT_XMSS_SHAKE256_20_192;
+    return -1;
+}
+
+static int getXmssmtParamId(const char *parameterSet) {
+    if (parameterSet == NULL) {
+        return -1;
+    }
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_20_2_256") == 0) return CRYPT_XMSSMT_SHA2_20_2_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_20_4_256") == 0) return CRYPT_XMSSMT_SHA2_20_4_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_2_256") == 0) return CRYPT_XMSSMT_SHA2_40_2_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_4_256") == 0) return CRYPT_XMSSMT_SHA2_40_4_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_8_256") == 0) return CRYPT_XMSSMT_SHA2_40_8_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_3_256") == 0) return CRYPT_XMSSMT_SHA2_60_3_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_6_256") == 0) return CRYPT_XMSSMT_SHA2_60_6_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_12_256") == 0) return CRYPT_XMSSMT_SHA2_60_12_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_20_2_512") == 0) return CRYPT_XMSSMT_SHA2_20_2_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_20_4_512") == 0) return CRYPT_XMSSMT_SHA2_20_4_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_2_512") == 0) return CRYPT_XMSSMT_SHA2_40_2_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_4_512") == 0) return CRYPT_XMSSMT_SHA2_40_4_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_8_512") == 0) return CRYPT_XMSSMT_SHA2_40_8_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_3_512") == 0) return CRYPT_XMSSMT_SHA2_60_3_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_6_512") == 0) return CRYPT_XMSSMT_SHA2_60_6_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_12_512") == 0) return CRYPT_XMSSMT_SHA2_60_12_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_20_2_256") == 0) return CRYPT_XMSSMT_SHAKE_20_2_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_20_4_256") == 0) return CRYPT_XMSSMT_SHAKE_20_4_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_40_2_256") == 0) return CRYPT_XMSSMT_SHAKE_40_2_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_40_4_256") == 0) return CRYPT_XMSSMT_SHAKE_40_4_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_40_8_256") == 0) return CRYPT_XMSSMT_SHAKE_40_8_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_60_3_256") == 0) return CRYPT_XMSSMT_SHAKE_60_3_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_60_6_256") == 0) return CRYPT_XMSSMT_SHAKE_60_6_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_60_12_256") == 0) return CRYPT_XMSSMT_SHAKE_60_12_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_20_2_512") == 0) return CRYPT_XMSSMT_SHAKE_20_2_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_20_4_512") == 0) return CRYPT_XMSSMT_SHAKE_20_4_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_40_2_512") == 0) return CRYPT_XMSSMT_SHAKE_40_2_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_40_4_512") == 0) return CRYPT_XMSSMT_SHAKE_40_4_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_40_8_512") == 0) return CRYPT_XMSSMT_SHAKE_40_8_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_60_3_512") == 0) return CRYPT_XMSSMT_SHAKE_60_3_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_60_6_512") == 0) return CRYPT_XMSSMT_SHAKE_60_6_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE_60_12_512") == 0) return CRYPT_XMSSMT_SHAKE_60_12_512;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_20_2_192") == 0) return CRYPT_XMSSMT_SHA2_20_2_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_20_4_192") == 0) return CRYPT_XMSSMT_SHA2_20_4_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_2_192") == 0) return CRYPT_XMSSMT_SHA2_40_2_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_4_192") == 0) return CRYPT_XMSSMT_SHA2_40_4_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_40_8_192") == 0) return CRYPT_XMSSMT_SHA2_40_8_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_3_192") == 0) return CRYPT_XMSSMT_SHA2_60_3_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_6_192") == 0) return CRYPT_XMSSMT_SHA2_60_6_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHA2_60_12_192") == 0) return CRYPT_XMSSMT_SHA2_60_12_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_20_2_256") == 0) return CRYPT_XMSSMT_SHAKE256_20_2_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_20_4_256") == 0) return CRYPT_XMSSMT_SHAKE256_20_4_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_40_2_256") == 0) return CRYPT_XMSSMT_SHAKE256_40_2_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_40_4_256") == 0) return CRYPT_XMSSMT_SHAKE256_40_4_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_40_8_256") == 0) return CRYPT_XMSSMT_SHAKE256_40_8_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_60_3_256") == 0) return CRYPT_XMSSMT_SHAKE256_60_3_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_60_6_256") == 0) return CRYPT_XMSSMT_SHAKE256_60_6_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_60_12_256") == 0) return CRYPT_XMSSMT_SHAKE256_60_12_256;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_20_2_192") == 0) return CRYPT_XMSSMT_SHAKE256_20_2_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_20_4_192") == 0) return CRYPT_XMSSMT_SHAKE256_20_4_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_40_2_192") == 0) return CRYPT_XMSSMT_SHAKE256_40_2_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_40_4_192") == 0) return CRYPT_XMSSMT_SHAKE256_40_4_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_40_8_192") == 0) return CRYPT_XMSSMT_SHAKE256_40_8_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_60_3_192") == 0) return CRYPT_XMSSMT_SHAKE256_60_3_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_60_6_192") == 0) return CRYPT_XMSSMT_SHAKE256_60_6_192;
+    if (strcmp(parameterSet, "CRYPT_XMSSMT_SHAKE256_60_12_192") == 0) return CRYPT_XMSSMT_SHAKE256_60_12_192;
+    return -1;
+}
+
+static void putUint32Be(uint8_t *buf, uint32_t value) {
+    buf[0] = (uint8_t)(value >> 24);
+    buf[1] = (uint8_t)(value >> 16);
+    buf[2] = (uint8_t)(value >> 8);
+    buf[3] = (uint8_t)value;
+}
+
+static uint32_t getUint32Be(const uint8_t *buf) {
+    return ((uint32_t)buf[0] << 24) | ((uint32_t)buf[1] << 16) | ((uint32_t)buf[2] << 8) | (uint32_t)buf[3];
+}
+
+static void putUint64Be(uint8_t *buf, uint64_t value) {
+    for (int i = 7; i >= 0; i--) {
+        buf[i] = (uint8_t)value;
+        value >>= 8;
+    }
+}
+
+static uint64_t getUint64Be(const uint8_t *buf) {
+    uint64_t value = 0;
+    for (int i = 0; i < 8; i++) {
+        value = (value << 8) | (uint64_t)buf[i];
+    }
+    return value;
+}
+
+static jbyteArray hbsNewByteArray(JNIEnv *env, const uint8_t *data, uint32_t dataLen) {
+    jbyteArray array = (*env)->NewByteArray(env, (jsize)dataLen);
+    if (array == NULL) {
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate byte array");
+        return NULL;
+    }
+    if (dataLen > 0) {
+        (*env)->SetByteArrayRegion(env, array, 0, (jsize)dataLen, (const jbyte *)data);
+    }
+    return array;
+}
+
+static jobjectArray hbsNewByteArrayPair(JNIEnv *env, jbyteArray first, jbyteArray second) {
+    jobjectArray result = (*env)->NewObjectArray(env, 2, (*env)->FindClass(env, "[B"), NULL);
+    if (result == NULL) {
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate result array");
+        return NULL;
+    }
+    (*env)->SetObjectArrayElement(env, result, 0, first);
+    (*env)->SetObjectArrayElement(env, result, 1, second);
+    return result;
+}
+
+static int configureLmsCtx(CRYPT_EAL_PkeyCtx *pkey, uint32_t lmsType, uint32_t otsType) {
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_LMS_SET_TYPE, &lmsType, sizeof(lmsType));
+    if (ret != CRYPT_SUCCESS) {
+        return ret;
+    }
+    return CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_LMS_SET_OTS_TYPE, &otsType, sizeof(otsType));
+}
+
+static int configureHssCtx(CRYPT_EAL_PkeyCtx *pkey, uint32_t levels, const uint32_t *lmsTypes, const uint32_t *otsTypes) {
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_LEVELS, &levels, sizeof(levels));
+    if (ret != CRYPT_SUCCESS) {
+        return ret;
+    }
+    for (uint32_t i = 0; i < levels; i++) {
+        uint32_t lmsParam[2] = {i, lmsTypes[i]};
+        uint32_t otsParam[2] = {i, otsTypes[i]};
+        ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_LMS_TYPE, lmsParam, sizeof(lmsParam));
+        if (ret != CRYPT_SUCCESS) {
+            return ret;
+        }
+        ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_OTS_TYPE, otsParam, sizeof(otsParam));
+        if (ret != CRYPT_SUCCESS) {
+            return ret;
+        }
+    }
+    return CRYPT_SUCCESS;
+}
+
+static jbyteArray exportRawHbsKey(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, int ctrlLenCmd, int paramKey, bool privateKey) {
+    int ret;
+    uint32_t keyLen = 0;
+    ret = CRYPT_EAL_PkeyCtrl(pkey, ctrlLenCmd, &keyLen, sizeof(keyLen));
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get key length", ret);
+        return NULL;
+    }
+    uint8_t *keyBuf = malloc(keyLen);
+    if (keyBuf == NULL) {
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate key buffer");
+        return NULL;
+    }
+    BSL_Param keyParam[2] = {0};
+    BSL_PARAM_InitValue(&keyParam[0], paramKey, BSL_PARAM_TYPE_OCTETS, keyBuf, keyLen);
+    ret = privateKey ? CRYPT_EAL_PkeyGetPrvEx(pkey, keyParam) : CRYPT_EAL_PkeyGetPubEx(pkey, keyParam);
+    if (ret != CRYPT_SUCCESS) {
+        if (privateKey) {
+            secureZeroFree(keyBuf, keyLen);
+        } else {
+            free(keyBuf);
+        }
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to export key", ret);
+        return NULL;
+    }
+    uint32_t useLen = keyParam[0].useLen != 0 ? keyParam[0].useLen : keyLen;
+    jbyteArray result = hbsNewByteArray(env, keyBuf, useLen);
+    if (privateKey) {
+        secureZeroFree(keyBuf, keyLen);
+    } else {
+        free(keyBuf);
+    }
+    return result;
+}
+
+static int importRawHbsKey(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray keyArray, int paramKey, bool privateKey) {
+    jbyte *keyData = (*env)->GetByteArrayElements(env, keyArray, NULL);
+    if (keyData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get key bytes");
+        return -1;
+    }
+    jsize keyLen = (*env)->GetArrayLength(env, keyArray);
+    BSL_Param keyParam[2] = {0};
+    BSL_PARAM_InitValue(&keyParam[0], paramKey, BSL_PARAM_TYPE_OCTETS, keyData, (uint32_t)keyLen);
+    int ret = privateKey ? CRYPT_EAL_PkeySetPrvEx(pkey, keyParam) : CRYPT_EAL_PkeySetPubEx(pkey, keyParam);
+    (*env)->ReleaseByteArrayElements(env, keyArray, keyData, JNI_ABORT);
+    return ret;
+}
+
+static jobjectArray rawHbsGenerateKeyPair(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey,
+    int pubLenCmd, int prvLenCmd, int pubParam, int prvParam) {
+    int ret = CRYPT_EAL_PkeyGen(pkey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate key pair", ret);
+        return NULL;
+    }
+    jbyteArray publicKey = exportRawHbsKey(env, pkey, pubLenCmd, pubParam, false);
+    if (publicKey == NULL) {
+        return NULL;
+    }
+    jbyteArray privateKey = exportRawHbsKey(env, pkey, prvLenCmd, prvParam, true);
+    if (privateKey == NULL) {
+        return NULL;
+    }
+    return hbsNewByteArrayPair(env, publicKey, privateKey);
+}
+
+static jobjectArray rawHbsSignAndExportState(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray data,
+    jint hashAlg, int sigLenCmd, int prvLenCmd, int prvParam) {
+    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
+    if (inputData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
+        return NULL;
+    }
+    jsize inputLen = (*env)->GetArrayLength(env, data);
+    uint32_t signLen = 0;
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, sigLenCmd, &signLen, sizeof(signLen));
+    if (ret != CRYPT_SUCCESS) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get signature length", ret);
+        return NULL;
+    }
+    uint8_t *signBuf = malloc(signLen);
+    if (signBuf == NULL) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate signature buffer");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeySign(pkey, getMdId(hashAlg), (uint8_t *)inputData, (uint32_t)inputLen, signBuf, &signLen);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        free(signBuf);
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to sign data", ret);
+        return NULL;
+    }
+    jbyteArray signature = hbsNewByteArray(env, signBuf, signLen);
+    free(signBuf);
+    if (signature == NULL) {
+        return NULL;
+    }
+    jbyteArray privateKey = exportRawHbsKey(env, pkey, prvLenCmd, prvParam, true);
+    if (privateKey == NULL) {
+        return NULL;
+    }
+    return hbsNewByteArrayPair(env, signature, privateKey);
+}
+
+static jboolean rawHbsVerify(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray data, jbyteArray signature, jint hashAlg) {
+    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
+    if (inputData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
+        return JNI_FALSE;
+    }
+    jbyte *signData = (*env)->GetByteArrayElements(env, signature, NULL);
+    if (signData == NULL) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get signature data");
+        return JNI_FALSE;
+    }
+    int ret = CRYPT_EAL_PkeyVerify(pkey, getMdId(hashAlg),
+        (uint8_t *)inputData, (uint32_t)(*env)->GetArrayLength(env, data),
+        (uint8_t *)signData, (uint32_t)(*env)->GetArrayLength(env, signature));
+    (*env)->ReleaseByteArrayElements(env, signature, signData, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+    return ret == CRYPT_SUCCESS ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsCreateContext
+  (JNIEnv *env, jclass cls, jstring jlmsType, jstring jotsType) {
+    const char *lmsTypeName = (*env)->GetStringUTFChars(env, jlmsType, NULL);
+    const char *otsTypeName = (*env)->GetStringUTFChars(env, jotsType, NULL);
+    if (lmsTypeName == NULL || otsTypeName == NULL) {
+        if (lmsTypeName != NULL) (*env)->ReleaseStringUTFChars(env, jlmsType, lmsTypeName);
+        if (otsTypeName != NULL) (*env)->ReleaseStringUTFChars(env, jotsType, otsTypeName);
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get LMS parameter strings");
+        return 0;
+    }
+    int lmsType = getLmsTypeId(lmsTypeName);
+    int otsType = getLmotsTypeId(otsTypeName);
+    (*env)->ReleaseStringUTFChars(env, jlmsType, lmsTypeName);
+    (*env)->ReleaseStringUTFChars(env, jotsType, otsTypeName);
+    if (lmsType < 0 || otsType < 0) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported LMS parameter set");
+        return 0;
+    }
+
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_LMS);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create LMS context");
+        return 0;
+    }
+    int ret = configureLmsCtx(pkey, (uint32_t)lmsType, (uint32_t)otsType);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to configure LMS context", ret);
+        return 0;
+    }
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    return rawHbsGenerateKeyPair(env, (CRYPT_EAL_PkeyCtx *)nativeRef,
+        CRYPT_CTRL_LMS_GET_PUBKEY_LEN, CRYPT_CTRL_LMS_GET_PRVKEY_LEN,
+        CRYPT_PARAM_LMS_PUBKEY, CRYPT_PARAM_LMS_PRVKEY);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSetPublicKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
+    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, publicKey, CRYPT_PARAM_LMS_PUBKEY, false);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set LMS public key", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSetPrivateKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray privateKey) {
+    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, privateKey, CRYPT_PARAM_LMS_PRVKEY, true);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set LMS private key", ret);
+    }
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSignAndExportState
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jint hashAlgorithm) {
+    return rawHbsSignAndExportState(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, hashAlgorithm,
+        CRYPT_CTRL_LMS_GET_SIG_LEN, CRYPT_CTRL_LMS_GET_PRVKEY_LEN, CRYPT_PARAM_LMS_PRVKEY);
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsVerify
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature, jint hashAlgorithm) {
+    return rawHbsVerify(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature, hashAlgorithm);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
+    }
+}
+
+static int readHssTypeArray(JNIEnv *env, jobjectArray names, uint32_t *types, bool lmsTypes) {
+    if (names == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "HSS parameter array cannot be null");
+        return -1;
+    }
+    jsize levels = (*env)->GetArrayLength(env, names);
+    if (levels < 1 || levels > 3) {
+        throwException(env, INVALID_ALGORITHM_PARAMETER_EXCEPTION, "HSS supports 1 to 3 levels");
+        return -1;
+    }
+    for (jsize i = 0; i < levels; i++) {
+        jstring item = (jstring)(*env)->GetObjectArrayElement(env, names, i);
+        if (item == NULL) {
+            throwException(env, INVALID_ALGORITHM_PARAMETER_EXCEPTION, "HSS parameter cannot be null");
+            return -1;
+        }
+        const char *name = (*env)->GetStringUTFChars(env, item, NULL);
+        if (name == NULL) {
+            (*env)->DeleteLocalRef(env, item);
+            throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get HSS parameter string");
+            return -1;
+        }
+        int type = lmsTypes ? getLmsTypeId(name) : getLmotsTypeId(name);
+        (*env)->ReleaseStringUTFChars(env, item, name);
+        (*env)->DeleteLocalRef(env, item);
+        if (type < 0) {
+            throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported HSS parameter set");
+            return -1;
+        }
+        types[i] = (uint32_t)type;
+    }
+    return levels;
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssCreateContext
+  (JNIEnv *env, jclass cls, jobjectArray jlmsTypes, jobjectArray jotsTypes) {
+    uint32_t lmsTypes[3] = {0};
+    uint32_t otsTypes[3] = {0};
+    int levels = readHssTypeArray(env, jlmsTypes, lmsTypes, true);
+    if (levels < 0) {
+        return 0;
+    }
+    int otsLevels = readHssTypeArray(env, jotsTypes, otsTypes, false);
+    if (otsLevels < 0) {
+        return 0;
+    }
+    if (levels != otsLevels) {
+        throwException(env, INVALID_ALGORITHM_PARAMETER_EXCEPTION, "HSS LMS and OTS parameter counts differ");
+        return 0;
+    }
+
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_HSS);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create HSS context");
+        return 0;
+    }
+    int ret = configureHssCtx(pkey, (uint32_t)levels, lmsTypes, otsTypes);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to configure HSS context", ret);
+        return 0;
+    }
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    return rawHbsGenerateKeyPair(env, (CRYPT_EAL_PkeyCtx *)nativeRef,
+        CRYPT_CTRL_HSS_GET_PUBKEY_LEN, CRYPT_CTRL_HSS_GET_PRVKEY_LEN,
+        CRYPT_PARAM_HSS_PUBKEY, CRYPT_PARAM_HSS_PRVKEY);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssSetPublicKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
+    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, publicKey, CRYPT_PARAM_HSS_PUBKEY, false);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set HSS public key", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssSetPrivateKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray privateKey) {
+    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, privateKey, CRYPT_PARAM_HSS_PRVKEY, true);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set HSS private key", ret);
+    }
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssSignAndExportState
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jint hashAlgorithm) {
+    return rawHbsSignAndExportState(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, hashAlgorithm,
+        CRYPT_CTRL_HSS_GET_SIG_LEN, CRYPT_CTRL_HSS_GET_PRVKEY_LEN, CRYPT_PARAM_HSS_PRVKEY);
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssVerify
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature, jint hashAlgorithm) {
+    return rawHbsVerify(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature, hashAlgorithm);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
+    }
+}
+
+static CRYPT_EAL_PkeyCtx *createXmssLikeContext(JNIEnv *env, jstring jparameterSet,
+    CRYPT_PKEY_AlgId algId, int (*paramResolver)(const char *), const char *name) {
+    const char *parameterSet = (*env)->GetStringUTFChars(env, jparameterSet, NULL);
+    if (parameterSet == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get parameter set string");
+        return NULL;
+    }
+    int paramId = paramResolver(parameterSet);
+    (*env)->ReleaseStringUTFChars(env, jparameterSet, parameterSet);
+    if (paramId < 0) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported parameter set");
+        return NULL;
+    }
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(algId);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create XMSS context");
+        return NULL;
+    }
+    int ret = CRYPT_EAL_PkeySetParaById(pkey, paramId);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        char message[128];
+        snprintf(message, sizeof(message), "Failed to configure %s context", name);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, message, ret);
+        return NULL;
+    }
+    return pkey;
+}
+
+static int getXmssLikeKeyLen(CRYPT_EAL_PkeyCtx *pkey, uint32_t *n) {
+    uint32_t pubLen = 0;
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_PUBKEY_LEN, &pubLen, sizeof(pubLen));
+    if (ret != CRYPT_SUCCESS) {
+        return ret;
+    }
+    if (pubLen < 4 || ((pubLen - 4) % 2) != 0) {
+        return -1;
+    }
+    *n = (pubLen - 4) / 2;
+    return CRYPT_SUCCESS;
+}
+
+static jbyteArray encodeXmssLikePublicKey(JNIEnv *env, uint32_t paramId, const CRYPT_XmssPub *pub) {
+    uint32_t outLen = HBS_XMSS_PUB_HEADER_LEN + 2 * pub->len;
+    uint8_t *out = malloc(outLen);
+    if (out == NULL) {
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate XMSS public key buffer");
+        return NULL;
+    }
+    putUint32Be(out, HBS_XMSS_PUB_BLOB_VERSION);
+    putUint32Be(out + 4, paramId);
+    putUint32Be(out + 8, pub->len);
+    memcpy(out + HBS_XMSS_PUB_HEADER_LEN, pub->seed, pub->len);
+    memcpy(out + HBS_XMSS_PUB_HEADER_LEN + pub->len, pub->root, pub->len);
+    jbyteArray result = hbsNewByteArray(env, out, outLen);
+    free(out);
+    return result;
+}
+
+static jbyteArray encodeXmssLikePrivateKey(JNIEnv *env, uint32_t paramId, const CRYPT_XmssPrv *prv) {
+    uint32_t n = prv->pub.len;
+    uint32_t outLen = HBS_XMSS_PRV_HEADER_LEN + 4 * n;
+    uint8_t *out = malloc(outLen);
+    if (out == NULL) {
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate XMSS private key buffer");
+        return NULL;
+    }
+    putUint32Be(out, HBS_XMSS_PRV_BLOB_VERSION);
+    putUint32Be(out + 4, paramId);
+    putUint32Be(out + 8, n);
+    putUint64Be(out + 12, prv->index);
+    memcpy(out + HBS_XMSS_PRV_HEADER_LEN, prv->seed, n);
+    memcpy(out + HBS_XMSS_PRV_HEADER_LEN + n, prv->prf, n);
+    memcpy(out + HBS_XMSS_PRV_HEADER_LEN + 2 * n, prv->pub.seed, n);
+    memcpy(out + HBS_XMSS_PRV_HEADER_LEN + 3 * n, prv->pub.root, n);
+    jbyteArray result = hbsNewByteArray(env, out, outLen);
+    secureZeroFree(out, outLen);
+    return result;
+}
+
+static int getXmssLikeParamIdFromCtx(CRYPT_EAL_PkeyCtx *pkey, uint32_t *paramId) {
+    int32_t paraId = 0;
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_PARAID, &paraId, sizeof(paraId));
+    if (ret != CRYPT_SUCCESS) {
+        return ret;
+    }
+    *paramId = (uint32_t)paraId;
+    return CRYPT_SUCCESS;
+}
+
+static int ensureXmssLikeParamId(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, uint32_t paramId) {
+    uint32_t currentParamId = 0;
+    int ret = getXmssLikeParamIdFromCtx(pkey, &currentParamId);
+    if (ret == CRYPT_SUCCESS) {
+        if (currentParamId != paramId) {
+            throwException(env, INVALID_KEY_EXCEPTION, "XMSS key parameter set does not match context");
+            return -1;
+        }
+        return CRYPT_SUCCESS;
+    }
+    if (ret != CRYPT_XMSS_KEYINFO_NOT_SET) {
+        return ret;
+    }
+    return CRYPT_EAL_PkeySetParaById(pkey, (int32_t)paramId);
+}
+
+static int validateXmssLikeBlobKeyLen(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, uint32_t n) {
+    uint32_t expectedN = 0;
+    int ret = getXmssLikeKeyLen(pkey, &expectedN);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to get XMSS parameter key length", ret);
+        return ret;
+    }
+    if (n != expectedN) {
+        throwException(env, INVALID_KEY_EXCEPTION, "XMSS key length does not match parameter set");
+        return -1;
+    }
+    return CRYPT_SUCCESS;
+}
+
+static int exportXmssLikePublic(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, CRYPT_PKEY_AlgId algId,
+    uint32_t paramId, jbyteArray *outArray) {
+    uint32_t n = 0;
+    int ret = getXmssLikeKeyLen(pkey, &n);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get XMSS key length", ret);
+        return ret;
+    }
+    CRYPT_EAL_PkeyPub pub;
+    memset(&pub, 0, sizeof(pub));
+    pub.id = algId;
+    pub.key.xmssPub.seed = malloc(n);
+    pub.key.xmssPub.root = malloc(n);
+    pub.key.xmssPub.len = n;
+    if (pub.key.xmssPub.seed == NULL || pub.key.xmssPub.root == NULL) {
+        free(pub.key.xmssPub.seed);
+        free(pub.key.xmssPub.root);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate XMSS public key");
+        return -1;
+    }
+    ret = CRYPT_EAL_PkeyGetPub(pkey, &pub);
+    if (ret != CRYPT_SUCCESS) {
+        free(pub.key.xmssPub.seed);
+        free(pub.key.xmssPub.root);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to export XMSS public key", ret);
+        return ret;
+    }
+    *outArray = encodeXmssLikePublicKey(env, paramId, &pub.key.xmssPub);
+    free(pub.key.xmssPub.seed);
+    free(pub.key.xmssPub.root);
+    return *outArray == NULL ? -1 : CRYPT_SUCCESS;
+}
+
+static int exportXmssLikePrivate(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, CRYPT_PKEY_AlgId algId,
+    uint32_t paramId, jbyteArray *outArray) {
+    uint32_t n = 0;
+    int ret = getXmssLikeKeyLen(pkey, &n);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get XMSS key length", ret);
+        return ret;
+    }
+    CRYPT_EAL_PkeyPrv prv;
+    memset(&prv, 0, sizeof(prv));
+    prv.id = algId;
+    prv.key.xmssPrv.seed = malloc(n);
+    prv.key.xmssPrv.prf = malloc(n);
+    prv.key.xmssPrv.pub.seed = malloc(n);
+    prv.key.xmssPrv.pub.root = malloc(n);
+    prv.key.xmssPrv.pub.len = n;
+    if (prv.key.xmssPrv.seed == NULL || prv.key.xmssPrv.prf == NULL ||
+        prv.key.xmssPrv.pub.seed == NULL || prv.key.xmssPrv.pub.root == NULL) {
+        secureZeroFree(prv.key.xmssPrv.seed, n);
+        secureZeroFree(prv.key.xmssPrv.prf, n);
+        secureZeroFree(prv.key.xmssPrv.pub.seed, n);
+        secureZeroFree(prv.key.xmssPrv.pub.root, n);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate XMSS private key");
+        return -1;
+    }
+    ret = CRYPT_EAL_PkeyGetPrv(pkey, &prv);
+    if (ret != CRYPT_SUCCESS) {
+        secureZeroFree(prv.key.xmssPrv.seed, n);
+        secureZeroFree(prv.key.xmssPrv.prf, n);
+        secureZeroFree(prv.key.xmssPrv.pub.seed, n);
+        secureZeroFree(prv.key.xmssPrv.pub.root, n);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to export XMSS private key", ret);
+        return ret;
+    }
+    *outArray = encodeXmssLikePrivateKey(env, paramId, &prv.key.xmssPrv);
+    secureZeroFree(prv.key.xmssPrv.seed, n);
+    secureZeroFree(prv.key.xmssPrv.prf, n);
+    secureZeroFree(prv.key.xmssPrv.pub.seed, n);
+    secureZeroFree(prv.key.xmssPrv.pub.root, n);
+    return *outArray == NULL ? -1 : CRYPT_SUCCESS;
+}
+
+static int importXmssLikePublic(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, CRYPT_PKEY_AlgId algId, jbyteArray publicKey) {
+    jsize keyLen = (*env)->GetArrayLength(env, publicKey);
+    if (keyLen < (jsize)HBS_XMSS_PUB_HEADER_LEN) {
+        throwException(env, INVALID_KEY_EXCEPTION, "XMSS public key blob is too short");
+        return -1;
+    }
+    jbyte *keyData = (*env)->GetByteArrayElements(env, publicKey, NULL);
+    if (keyData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get XMSS public key bytes");
+        return -1;
+    }
+    uint8_t *bytes = (uint8_t *)keyData;
+    uint32_t version = getUint32Be(bytes);
+    uint32_t paramId = getUint32Be(bytes + 4);
+    uint32_t n = getUint32Be(bytes + 8);
+    uint64_t expectedLen = (uint64_t)HBS_XMSS_PUB_HEADER_LEN + 2ULL * (uint64_t)n;
+    if (version != HBS_XMSS_PUB_BLOB_VERSION || n == 0 || expectedLen != (uint64_t)keyLen) {
+        (*env)->ReleaseByteArrayElements(env, publicKey, keyData, JNI_ABORT);
+        throwException(env, INVALID_KEY_EXCEPTION, "Invalid XMSS public key blob");
+        return -1;
+    }
+    int ret = ensureXmssLikeParamId(env, pkey, paramId);
+    if (ret == CRYPT_SUCCESS) {
+        ret = validateXmssLikeBlobKeyLen(env, pkey, n);
+    }
+    if (ret == CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyPub pub;
+        memset(&pub, 0, sizeof(pub));
+        pub.id = algId;
+        pub.key.xmssPub.seed = bytes + HBS_XMSS_PUB_HEADER_LEN;
+        pub.key.xmssPub.root = bytes + HBS_XMSS_PUB_HEADER_LEN + n;
+        pub.key.xmssPub.len = n;
+        ret = CRYPT_EAL_PkeySetPub(pkey, &pub);
+    }
+    (*env)->ReleaseByteArrayElements(env, publicKey, keyData, JNI_ABORT);
+    return ret;
+}
+
+static int importXmssLikePrivate(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, CRYPT_PKEY_AlgId algId, jbyteArray privateKey) {
+    jsize keyLen = (*env)->GetArrayLength(env, privateKey);
+    if (keyLen < (jsize)HBS_XMSS_PRV_HEADER_LEN) {
+        throwException(env, INVALID_KEY_EXCEPTION, "XMSS private key blob is too short");
+        return -1;
+    }
+    jbyte *keyData = (*env)->GetByteArrayElements(env, privateKey, NULL);
+    if (keyData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get XMSS private key bytes");
+        return -1;
+    }
+    uint8_t *bytes = (uint8_t *)keyData;
+    uint32_t version = getUint32Be(bytes);
+    uint32_t paramId = getUint32Be(bytes + 4);
+    uint32_t n = getUint32Be(bytes + 8);
+    uint64_t expectedLen = (uint64_t)HBS_XMSS_PRV_HEADER_LEN + 4ULL * (uint64_t)n;
+    if (version != HBS_XMSS_PRV_BLOB_VERSION || n == 0 || expectedLen != (uint64_t)keyLen) {
+        (*env)->ReleaseByteArrayElements(env, privateKey, keyData, JNI_ABORT);
+        throwException(env, INVALID_KEY_EXCEPTION, "Invalid XMSS private key blob");
+        return -1;
+    }
+    int ret = ensureXmssLikeParamId(env, pkey, paramId);
+    if (ret == CRYPT_SUCCESS) {
+        ret = validateXmssLikeBlobKeyLen(env, pkey, n);
+    }
+    if (ret == CRYPT_SUCCESS) {
+        CRYPT_EAL_PkeyPrv prv;
+        memset(&prv, 0, sizeof(prv));
+        prv.id = algId;
+        prv.key.xmssPrv.index = getUint64Be(bytes + 12);
+        prv.key.xmssPrv.seed = bytes + HBS_XMSS_PRV_HEADER_LEN;
+        prv.key.xmssPrv.prf = bytes + HBS_XMSS_PRV_HEADER_LEN + n;
+        prv.key.xmssPrv.pub.seed = bytes + HBS_XMSS_PRV_HEADER_LEN + 2 * n;
+        prv.key.xmssPrv.pub.root = bytes + HBS_XMSS_PRV_HEADER_LEN + 3 * n;
+        prv.key.xmssPrv.pub.len = n;
+        ret = CRYPT_EAL_PkeySetPrv(pkey, &prv);
+    }
+    (*env)->ReleaseByteArrayElements(env, privateKey, keyData, JNI_ABORT);
+    return ret;
+}
+
+static jobjectArray xmssLikeGenerateKeyPair(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, CRYPT_PKEY_AlgId algId) {
+    int ret = CRYPT_EAL_PkeyGen(pkey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate XMSS key pair", ret);
+        return NULL;
+    }
+    uint32_t paramId = 0;
+    ret = getXmssLikeParamIdFromCtx(pkey, &paramId);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get XMSS parameter ID", ret);
+        return NULL;
+    }
+    jbyteArray publicKey = NULL;
+    jbyteArray privateKey = NULL;
+    if (exportXmssLikePublic(env, pkey, algId, paramId, &publicKey) != CRYPT_SUCCESS) {
+        return NULL;
+    }
+    if (exportXmssLikePrivate(env, pkey, algId, paramId, &privateKey) != CRYPT_SUCCESS) {
+        return NULL;
+    }
+    return hbsNewByteArrayPair(env, publicKey, privateKey);
+}
+
+static jobjectArray xmssLikeSignAndExportState(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, CRYPT_PKEY_AlgId algId,
+    jbyteArray data) {
+    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
+    if (inputData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
+        return NULL;
+    }
+    uint32_t signLen = 0;
+    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_GET_SIGNLEN, &signLen, sizeof(signLen));
+    if (ret != CRYPT_SUCCESS) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get XMSS signature length", ret);
+        return NULL;
+    }
+    uint8_t *signBuf = malloc(signLen);
+    if (signBuf == NULL) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate XMSS signature buffer");
+        return NULL;
+    }
+    ret = CRYPT_EAL_PkeySign(pkey, 0, (uint8_t *)inputData, (uint32_t)(*env)->GetArrayLength(env, data),
+        signBuf, &signLen);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+    if (ret != CRYPT_SUCCESS) {
+        free(signBuf);
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to sign data", ret);
+        return NULL;
+    }
+    jbyteArray signature = hbsNewByteArray(env, signBuf, signLen);
+    free(signBuf);
+    if (signature == NULL) {
+        return NULL;
+    }
+    uint32_t paramId = 0;
+    ret = getXmssLikeParamIdFromCtx(pkey, &paramId);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get XMSS parameter ID", ret);
+        return NULL;
+    }
+    jbyteArray privateKey = NULL;
+    if (exportXmssLikePrivate(env, pkey, algId, paramId, &privateKey) != CRYPT_SUCCESS) {
+        return NULL;
+    }
+    return hbsNewByteArrayPair(env, signature, privateKey);
+}
+
+static jboolean xmssLikeVerify(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray data, jbyteArray signature) {
+    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
+    if (inputData == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
+        return JNI_FALSE;
+    }
+    jbyte *signData = (*env)->GetByteArrayElements(env, signature, NULL);
+    if (signData == NULL) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get signature data");
+        return JNI_FALSE;
+    }
+    int ret = CRYPT_EAL_PkeyVerify(pkey, 0,
+        (uint8_t *)inputData, (uint32_t)(*env)->GetArrayLength(env, data),
+        (uint8_t *)signData, (uint32_t)(*env)->GetArrayLength(env, signature));
+    (*env)->ReleaseByteArrayElements(env, signature, signData, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+    return ret == CRYPT_SUCCESS ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssCreateContext
+  (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    CRYPT_EAL_PkeyCtx *pkey = createXmssLikeContext(env, jparameterSet, CRYPT_PKEY_XMSS, getXmssParamId, "XMSS");
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    return xmssLikeGenerateKeyPair(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSS);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssSetPublicKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
+    int ret = importXmssLikePublic(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSS, publicKey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set XMSS public key", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssSetPrivateKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray privateKey) {
+    int ret = importXmssLikePrivate(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSS, privateKey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set XMSS private key", ret);
+    }
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssSignAndExportState
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data) {
+    return xmssLikeSignAndExportState(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSS, data);
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssVerify
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature) {
+    return xmssLikeVerify(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
+    }
+}
+
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtCreateContext
+  (JNIEnv *env, jclass cls, jstring jparameterSet) {
+    CRYPT_EAL_PkeyCtx *pkey = createXmssLikeContext(env, jparameterSet, CRYPT_PKEY_XMSSMT, getXmssmtParamId, "XMSSMT");
+    return (jlong)pkey;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtGenerateKeyPair
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    return xmssLikeGenerateKeyPair(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSSMT);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtSetPublicKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
+    int ret = importXmssLikePublic(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSSMT, publicKey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set XMSSMT public key", ret);
+    }
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtSetPrivateKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray privateKey) {
+    int ret = importXmssLikePrivate(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSSMT, privateKey);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set XMSSMT private key", ret);
+    }
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtSignAndExportState
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data) {
+    return xmssLikeSignAndExportState(env, (CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_PKEY_XMSSMT, data);
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtVerify
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature) {
+    return xmssLikeVerify(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_xmssmtFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
+    }
+}

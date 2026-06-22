@@ -1,8 +1,9 @@
 package org.openhitls.crypto.core;
 
-public abstract class NativeResource {
+public abstract class NativeResource implements AutoCloseable {
     protected final long nativeContext;
     protected final FreeCallback freeCallback;
+    private boolean closed;
 
     @FunctionalInterface
     protected interface FreeCallback {
@@ -15,11 +16,17 @@ public abstract class NativeResource {
     }
 
     @Override
+    public synchronized void close() {
+        if (!closed && nativeContext != 0 && freeCallback != null) {
+            freeCallback.freeNativeContext(nativeContext);
+        }
+        closed = true;
+    }
+
+    @Override
     protected void finalize() throws Throwable {
         try {
-            if (nativeContext != 0 && freeCallback != null) {
-                freeCallback.freeNativeContext(nativeContext);
-            }
+            close();
         } finally {
             super.finalize();
         }
