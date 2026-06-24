@@ -1,5 +1,7 @@
 package org.openhitls.crypto.jce.cipher;
 
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.symmetric.SymmetricCipherImpl;
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
@@ -127,61 +129,83 @@ public abstract class AbstractBlockCipher extends CipherSpi {
             throw new InvalidKeyException("Key must be a SecretKeySpec");
         }
 
-        // Get the raw key bytes
         byte[] keyBytes = key.getEncoded();
-        validateKeySize(keyBytes);
-        this.key = keyBytes;
-        this.opmode = opmode;
         try {
-            int sm4Mode = (opmode == Cipher.ENCRYPT_MODE) ? SymmetricCipherImpl.MODE_ENCRYPT : SymmetricCipherImpl.MODE_DECRYPT;
-            int paddingMode = getPaddingMode();
+            validateKeySize(keyBytes);
+            byte[] newIv = null;
+            SymmetricCipherImpl oldCipher = symmetricCipher;
+            SymmetricCipherImpl newCipher = null;
+            try {
+                int sm4Mode = (opmode == Cipher.ENCRYPT_MODE) ? SymmetricCipherImpl.MODE_ENCRYPT : SymmetricCipherImpl.MODE_DECRYPT;
+                int paddingMode = getPaddingMode();
 
-            if (params == null) {
-                this.iv = null;
-            } else if (params instanceof IvParameterSpec) {
-                this.iv = ((IvParameterSpec)params).getIV();
-                if (this.iv.length != 16) {
-                    throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
+                if (params == null) {
+                    newIv = null;
+                } else if (params instanceof IvParameterSpec) {
+                    newIv = ((IvParameterSpec)params).getIV();
+                    if (newIv.length != 16) {
+                        throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
+                    }
+                } else if (params instanceof GCMParameterSpec) {
+                    GCMParameterSpec gcmParams = (GCMParameterSpec) params;
+                    newIv = gcmParams.getIV();
+                    if (newIv.length != 16) {
+                        throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
+                    }
+
+                    // For GCM mode, set the tag length in bits (converted to bytes)
+                    int tagLengthBits = gcmParams.getTLen();
+                    if (tagLengthBits < 32 || tagLengthBits > 128 || (tagLengthBits % 8) != 0) {
+                        throw new InvalidAlgorithmParameterException("Tag length must be 32-128 bits and a multiple of 8");
+                    }
+                } else {
+                    throw new InvalidAlgorithmParameterException("Unsupported parameter type: " + params.getClass().getName());
                 }
-            } else if (params instanceof GCMParameterSpec) {
-                GCMParameterSpec gcmParams = (GCMParameterSpec) params;
-                this.iv = gcmParams.getIV();
-                if (this.iv.length != 16) {
-                    throw new InvalidAlgorithmParameterException("IV must be 16 bytes");
+
+                // Check if we need an IV but don't have one
+                if (requiresIV && newIv == null) {
+                    throw new InvalidAlgorithmParameterException(mode + " mode requires an IV");
                 }
+
+                // Check if we have an IV but don't need one
+                if (!requiresIV && newIv != null) {
+                    throw new InvalidAlgorithmParameterException(mode + " mode cannot use IV");
+                }
+
+                // Initialize the cipher
+                newCipher = new SymmetricCipherImpl(getAlgorithmName(), mode, keyBytes, newIv, sm4Mode, paddingMode);
                 
-                // For GCM mode, set the tag length in bits (converted to bytes)
-                int tagLengthBits = gcmParams.getTLen();
-                if (tagLengthBits < 32 || tagLengthBits > 128 || (tagLengthBits % 8) != 0) {
-                    throw new InvalidAlgorithmParameterException("Tag length must be 32-128 bits and a multiple of 8");
+                // For GCM mode, set the tag length
+                if ("GCM".equals(mode) && params instanceof GCMParameterSpec) {
+                    int tagLengthBits = ((GCMParameterSpec) params).getTLen();
+                    int tagLengthBytes = tagLengthBits / 8;
+                    newCipher.setTagLength(tagLengthBytes);
                 }
-            } else {
-                throw new InvalidAlgorithmParameterException("Unsupported parameter type: " + params.getClass().getName());
-            }
-    
-            // Check if we need an IV but don't have one
-            if (requiresIV && this.iv == null) {
-                throw new InvalidAlgorithmParameterException(mode + " mode requires an IV");
-            }
-
-            // Check if we have an IV but don't need one
-            if (!requiresIV && this.iv != null) {
-                throw new InvalidAlgorithmParameterException(mode + " mode cannot use IV");
-            }
-            
-            // Initialize the cipher
-            symmetricCipher = new SymmetricCipherImpl(getAlgorithmName(), mode, this.key, this.iv, sm4Mode, paddingMode);
-            
-            // For GCM mode, set the tag length
-            if ("GCM".equals(mode) && params instanceof GCMParameterSpec) {
-                int tagLengthBits = ((GCMParameterSpec) params).getTLen();
-                int tagLengthBytes = tagLengthBits / 8;
-                symmetricCipher.setTagLength(tagLengthBytes);
+            } catch (InvalidAlgorithmParameterException e) {
+                NativeResourceUtil.closeSuppressing(newCipher, e);
+                throw e;
+            } catch (RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newCipher, e);
+                throw new InvalidKeyException("Failed to initialize cipher: " + e.getMessage(), e);
             }
 
+            try {
+                symmetricCipher = NativeResourceUtil.replaceAfterClosing(oldCipher, newCipher, failure -> failure);
+                newCipher = null;
+            } catch (RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newCipher, e);
+                throw e;
+            }
+
+            byte[] oldKey = this.key;
+            this.key = keyBytes;
+            keyBytes = null;
+            this.opmode = opmode;
+            this.iv = newIv;
             initialized = true;
-        } catch (Exception e) {
-            throw new InvalidKeyException("Failed to initialize cipher: " + e.getMessage());
+            SensitiveDataUtil.clear(oldKey);
+        } finally {
+            SensitiveDataUtil.clear(keyBytes);
         }
     }
 
@@ -204,6 +228,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
         if (!initialized) {
             throw new IllegalStateException("Cipher not initialized");
         }
+        validateInputRange(input, inputOffset, inputLen);
 
         try {
             return symmetricCipher.update(input, inputOffset, inputLen);
@@ -229,6 +254,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
         if (!initialized) {
             throw new IllegalStateException("Cipher not initialized");
         }
+        validateInputRange(input, inputOffset, inputLen);
 
         // For NoPadding mode, validate input length is multiple of block size
         if ("NOPADDING".equalsIgnoreCase(padding) && ("CBC".equals(mode) || "ECB".equals(mode))) {
@@ -237,18 +263,13 @@ public abstract class AbstractBlockCipher extends CipherSpi {
             }
         }
 
+        boolean resetAfterFinal = isStreamMode();
+        Throwable finalFailure = null;
         try {
-            // For stream cipher modes, we need to reinitialize for each operation
-            boolean isStreamMode = (mode.equals("CTR") || mode.equals("CFB") || mode.equals("OFB"));
-            if (isStreamMode) {
-                int sm4Mode = (opmode == Cipher.ENCRYPT_MODE) ? SymmetricCipherImpl.MODE_ENCRYPT : SymmetricCipherImpl.MODE_DECRYPT;
-                symmetricCipher = new SymmetricCipherImpl(getAlgorithmName(), mode, this.key, this.iv, sm4Mode, SymmetricCipherImpl.PADDING_NONE);
-            }
-
             byte[] result;
             if (opmode == Cipher.ENCRYPT_MODE) {
                 // First update with input if any
-                if (input != null && inputLen > 0) {
+                if (hasInput(input, inputLen)) {
                     result = symmetricCipher.update(input, inputOffset, inputLen);
                 } else {
                     result = new byte[0];
@@ -274,7 +295,7 @@ public abstract class AbstractBlockCipher extends CipherSpi {
                 return result;
             } else {
                 // DECRYPT MODE
-                if (input != null && inputLen > 0 && inputOffset + inputLen <= input.length) {
+                if (hasInput(input, inputLen)) {
                     if ("GCM".equals(mode)) {
                         // For GCM mode, separate the tag from the ciphertext
                         int tagLength = symmetricCipher.getTagLength();
@@ -318,7 +339,16 @@ public abstract class AbstractBlockCipher extends CipherSpi {
                 }
             }
         } catch (Exception e) {
-            throw new IllegalStateException("Error during final operation: " + e.getMessage());
+            IllegalStateException wrappedFailure = new IllegalStateException("Error during final operation", e);
+            finalFailure = wrappedFailure;
+            throw wrappedFailure;
+        } catch (Error e) {
+            finalFailure = e;
+            throw e;
+        } finally {
+            if (resetAfterFinal) {
+                resetStreamCipherAfterFinal(finalFailure);
+            }
         }
     }
 
@@ -378,6 +408,72 @@ public abstract class AbstractBlockCipher extends CipherSpi {
                 return SymmetricCipherImpl.PADDING_PKCS7;
             default:
                 throw new IllegalArgumentException("Unsupported padding mode: " + padding);
+        }
+    }
+
+    private boolean isStreamMode() {
+        return mode.equals("CTR") || mode.equals("CFB") || mode.equals("OFB");
+    }
+
+    private static boolean hasInput(byte[] input, int inputLen) {
+        return input != null && inputLen > 0;
+    }
+
+    private static void validateInputRange(byte[] input, int inputOffset, int inputLen) {
+        if (inputOffset < 0 || inputLen < 0) {
+            throw new IllegalArgumentException("Invalid input offset or length");
+        }
+        if (input == null) {
+            if (inputLen == 0) {
+                return;
+            }
+            throw new IllegalArgumentException("Input buffer cannot be null when input length is non-zero");
+        }
+        if (inputOffset > input.length - inputLen) {
+            throw new IllegalArgumentException("Invalid input offset or length");
+        }
+    }
+
+    private void resetStreamCipherAfterFinal(Throwable finalFailure) {
+        RuntimeException closeFailure;
+        try {
+            closeFailure = resetStreamCipher();
+        } catch (RuntimeException resetFailure) {
+            throwOrSuppress(resetFailure, finalFailure);
+            return;
+        }
+
+        if (closeFailure == null) {
+            return;
+        }
+        if (finalFailure != null) {
+            finalFailure.addSuppressed(closeFailure);
+            return;
+        }
+        // Reset succeeded; do not replace a successful doFinal result with old-context close failure.
+    }
+
+    private RuntimeException resetStreamCipher() {
+        int cipherMode = (opmode == Cipher.ENCRYPT_MODE) ? SymmetricCipherImpl.MODE_ENCRYPT : SymmetricCipherImpl.MODE_DECRYPT;
+        SymmetricCipherImpl oldCipher = symmetricCipher;
+        SymmetricCipherImpl newCipher;
+        try {
+            newCipher = new SymmetricCipherImpl(getAlgorithmName(), mode, this.key, this.iv, cipherMode, SymmetricCipherImpl.PADDING_NONE);
+        } catch (RuntimeException | Error resetFailure) {
+            NativeResourceUtil.closeSuppressing(oldCipher, resetFailure);
+            symmetricCipher = null;
+            initialized = false;
+            throw resetFailure;
+        }
+        symmetricCipher = newCipher;
+        return NativeResourceUtil.closeAndCapture(oldCipher);
+    }
+
+    private static void throwOrSuppress(RuntimeException failure, Throwable primaryFailure) {
+        if (primaryFailure != null) {
+            primaryFailure.addSuppressed(failure);
+        } else {
+            throw failure;
         }
     }
 } 

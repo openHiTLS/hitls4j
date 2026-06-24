@@ -15,6 +15,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.SecureRandom;
 import java.security.Security;
@@ -93,8 +94,8 @@ public class SM4Test extends BaseTest {
 
         try {
             cbcCipher.init(Cipher.ENCRYPT_MODE, validKey, new IvParameterSpec(new byte[8]));
-            fail("Expected InvalidKeyException for short CBC IV");
-        } catch (InvalidKeyException expected) {
+            fail("Expected InvalidAlgorithmParameterException for short CBC IV");
+        } catch (InvalidAlgorithmParameterException expected) {
             // Expected.
         }
     }

@@ -4,43 +4,77 @@ import java.security.spec.*;
 import java.math.BigInteger;
 import java.util.Arrays;
 
+import org.openhitls.crypto.jce.util.ECKeyEncoding;
+
 public class ECPrivateKey implements java.security.interfaces.ECPrivateKey {
     private static final long serialVersionUID = 1L;
+    private static final String DEFAULT_ALGORITHM = "EC";
     private final byte[] keyBytes;
     private final ECParameterSpec params;
+    private final String algorithm;
     private BigInteger s;  // Cache the private value to avoid repeated computation
 
     public ECPrivateKey(byte[] keyBytes) {
-        this.keyBytes = keyBytes.clone();
-        this.params = null;
-        this.s = null;
+        this(keyBytes, null, DEFAULT_ALGORITHM);
+    }
+
+    public ECPrivateKey(byte[] keyBytes, String algorithm) {
+        this(keyBytes, null, algorithm);
     }
 
     public ECPrivateKey(byte[] keyBytes, ECParameterSpec params) {
+        this(keyBytes, params, DEFAULT_ALGORITHM);
+    }
+
+    public ECPrivateKey(byte[] keyBytes, ECParameterSpec params, String algorithm) {
         this.keyBytes = keyBytes.clone();
         this.params = params;
+        this.algorithm = normalizeAlgorithm(algorithm);
         this.s = null;
     }
 
     public ECPrivateKey(BigInteger s, ECParameterSpec params) {
+        this(s, params, DEFAULT_ALGORITHM);
+    }
+
+    public ECPrivateKey(BigInteger s, ECParameterSpec params, String algorithm) {
+        validatePrivateValue(s, params);
         this.s = s;
-        // Get field size in bytes
         int fieldSize = (params.getCurve().getField().getFieldSize() + 7) / 8;
-        byte[] encoded = new byte[fieldSize];
-        byte[] sBytes = s.toByteArray();
-        if (sBytes.length > fieldSize) {
-            // Remove leading zeros if present
-            sBytes = Arrays.copyOfRange(sBytes, sBytes.length - fieldSize, sBytes.length);
-        } else if (sBytes.length < fieldSize) {
-            // Pad with zeros if needed
-            byte[] padded = new byte[fieldSize];
-            System.arraycopy(sBytes, 0, padded, fieldSize - sBytes.length, sBytes.length);
-            sBytes = padded;
-        }
-        System.arraycopy(sBytes, 0, encoded, 0, fieldSize);
         
-        this.keyBytes = encoded;
+        this.keyBytes = toFixedLengthUnsigned(s, fieldSize);
         this.params = params;
+        this.algorithm = normalizeAlgorithm(algorithm);
+    }
+
+    private static void validatePrivateValue(BigInteger s, ECParameterSpec params) {
+        try {
+            ECKeyEncoding.validatePrivateValue(s, params);
+        } catch (InvalidKeySpecException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
+    }
+
+    private static byte[] toFixedLengthUnsigned(BigInteger value, int fieldSize) {
+        byte[] valueBytes = value.toByteArray();
+        byte[] unsigned = valueBytes;
+        try {
+            if (valueBytes.length == fieldSize + 1 && valueBytes[0] == 0) {
+                unsigned = Arrays.copyOfRange(valueBytes, 1, valueBytes.length);
+            }
+            if (unsigned.length > fieldSize) {
+                throw new IllegalArgumentException("EC private value is too large");
+            }
+
+            byte[] encoded = new byte[fieldSize];
+            System.arraycopy(unsigned, 0, encoded, fieldSize - unsigned.length, unsigned.length);
+            return encoded;
+        } finally {
+            Arrays.fill(valueBytes, (byte) 0);
+            if (unsigned != valueBytes) {
+                Arrays.fill(unsigned, (byte) 0);
+            }
+        }
     }
 
     public ECParameterSpec getParams() {
@@ -49,17 +83,24 @@ public class ECPrivateKey implements java.security.interfaces.ECPrivateKey {
 
     @Override
     public String getAlgorithm() {
-        return "EC";
+        return algorithm;
     }
 
     @Override
     public String getFormat() {
-        return "RAW";
+        return params != null ? "PKCS#8" : null;
     }
 
     @Override
     public byte[] getEncoded() {
-        return keyBytes.clone();
+        if (params == null) {
+            return null;
+        }
+        try {
+            return ECKeyCodec.encodePrivate(getS(), params);
+        } catch (InvalidKeySpecException | RuntimeException e) {
+            throw new IllegalStateException("Failed to encode EC private key", e);
+        }
     }
 
     @Override
@@ -81,5 +122,9 @@ public class ECPrivateKey implements java.security.interfaces.ECPrivateKey {
             s = new BigInteger(1, keyBytes);
         }
         return s;
+    }
+
+    private static String normalizeAlgorithm(String algorithm) {
+        return algorithm == null ? DEFAULT_ALGORITHM : algorithm;
     }
 }

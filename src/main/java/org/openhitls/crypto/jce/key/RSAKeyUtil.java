@@ -5,6 +5,7 @@ import java.security.InvalidKeyException;
 import java.security.interfaces.RSAPrivateCrtKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.util.Arrays;
 
 public final class RSAKeyUtil {
     private RSAKeyUtil() {
@@ -49,6 +50,7 @@ public final class RSAKeyUtil {
         if (bytes.length > 1 && bytes[0] == 0) {
             byte[] unsigned = new byte[bytes.length - 1];
             System.arraycopy(bytes, 1, unsigned, 0, unsigned.length);
+            Arrays.fill(bytes, (byte) 0);
             return unsigned;
         }
         return bytes;

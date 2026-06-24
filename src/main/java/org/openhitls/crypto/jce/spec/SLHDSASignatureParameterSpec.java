@@ -11,8 +11,8 @@ public class SLHDSASignatureParameterSpec implements AlgorithmParameterSpec{
     public SLHDSASignatureParameterSpec(boolean deterministic, boolean preHash, byte[] context, byte[] additionalRandomness) {
         this.deterministic = deterministic;
         this.preHash = preHash;
-        this.context = context;
-        this.additionalRandomness = additionalRandomness;
+        this.context = context != null ? context.clone() : null;
+        this.additionalRandomness = additionalRandomness != null ? additionalRandomness.clone() : null;
     }
 
     public boolean isDeterministic(){
@@ -24,10 +24,10 @@ public class SLHDSASignatureParameterSpec implements AlgorithmParameterSpec{
     }
 
     public byte[] getContext() {
-        return context;
+        return context != null ? context.clone() : null;
     }
 
     public byte[] getAdditionalRandomness() {
-        return additionalRandomness;
+        return additionalRandomness != null ? additionalRandomness.clone() : null;
     }
 }

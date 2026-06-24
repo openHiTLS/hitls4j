@@ -1,9 +1,15 @@
 package org.openhitls.crypto.core.asymmetric;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil.KeyMaterial;
 
 public class ECDSAImpl extends NativeResource {
+    private static final byte[] DEFAULT_SM2_USER_ID = "1234567812345678".getBytes(StandardCharsets.US_ASCII);
     private byte[] publicKey;
     private byte[] privateKey;
     private byte[] userId;
@@ -18,8 +24,19 @@ public class ECDSAImpl extends NativeResource {
         super(initContext(curveName), CryptoNative::ecdsaFreeContext);
         this.curveName = curveName;
         this.hashAlgorithm = hashAlgorithm;
-        byte[][] keyPair = CryptoNative.ecdsaGenerateKeyPair(nativeContext, this.curveName);
-        setKeys(keyPair[0], keyPair[1]);
+        byte[][] keyPair = null;
+        try {
+            keyPair = CryptoNative.ecdsaGenerateKeyPair(nativeContext, this.curveName);
+            if (keyPair == null || keyPair.length != 2 || keyPair[0] == null || keyPair[1] == null) {
+                throw new IllegalStateException("Generated ECDSA key pair is invalid");
+            }
+            setKeys(keyPair[0], keyPair[1]);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        } finally {
+            clear(keyPair != null && keyPair.length > 1 ? keyPair[1] : null);
+        }
     }
 
     public ECDSAImpl(String curveName, byte[] publicKey, byte[] privateKey) {
@@ -30,7 +47,12 @@ public class ECDSAImpl extends NativeResource {
         super(initContext(curveName), CryptoNative::ecdsaFreeContext);
         this.curveName = curveName;
         this.hashAlgorithm = hashAlgorithm;
-        setKeys(publicKey, privateKey);
+        try {
+            setKeys(publicKey, privateKey);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     private static long initContext(String curveName) {
@@ -41,17 +63,63 @@ public class ECDSAImpl extends NativeResource {
     }
 
     void setKeys(byte[] publicKey, byte[] privateKey) {
-        this.publicKey = publicKey;
-        this.privateKey = privateKey;
-        CryptoNative.ecdsaSetKeys(nativeContext, curveName, publicKey, privateKey);
+        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(publicKey, privateKey);
+        boolean updated = false;
+        try {
+            CryptoNative.ecdsaSetKeys(nativeContext, curveName, keyMaterial.publicKey(), keyMaterial.privateKey());
+            updated = true;
+            clear(this.privateKey);
+            this.publicKey = keyMaterial.publicKey();
+            this.privateKey = keyMaterial.privateKey();
+        } finally {
+            if (!updated) {
+                keyMaterial.clearPrivate();
+            }
+        }
+    }
+
+    private static void clear(byte[] value) {
+        if (value != null) {
+            Arrays.fill(value, (byte) 0);
+        }
     }
 
     public void setUserId(byte[] userId) {
         if (userId == null) {
             throw new IllegalArgumentException("UserId cannot be null");
         }
-        this.userId = userId.clone();
-        CryptoNative.ecdsaSetUserId(nativeContext, userId);
+        byte[] newUserId = userId.clone();
+        boolean updated = false;
+        try {
+            CryptoNative.ecdsaSetUserId(nativeContext, newUserId);
+            updated = true;
+            clear(this.userId);
+            this.userId = newUserId;
+        } finally {
+            if (!updated) {
+                clear(newUserId);
+            }
+        }
+    }
+
+    public void resetUserId() {
+        if ("sm2p256v1".equals(curveName)) {
+            byte[] defaultUserId = DEFAULT_SM2_USER_ID.clone();
+            boolean updated = false;
+            try {
+                CryptoNative.ecdsaSetUserId(nativeContext, defaultUserId);
+                updated = true;
+                clear(this.userId);
+                this.userId = defaultUserId;
+            } finally {
+                if (!updated) {
+                    clear(defaultUserId);
+                }
+            }
+        } else {
+            clear(this.userId);
+            this.userId = null;
+        }
     }
 
     public byte[] getUserId() {

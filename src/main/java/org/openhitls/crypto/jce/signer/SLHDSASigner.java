@@ -10,6 +10,8 @@ import java.security.SignatureSpi;
 import java.security.spec.AlgorithmParameterSpec;
 
 import org.openhitls.crypto.core.CryptoConstants;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.SLHDSAImpl;
 import org.openhitls.crypto.jce.key.SLHDSAPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.SLHDSAPublicKeyImpl;
@@ -19,7 +21,7 @@ import org.openhitls.crypto.jce.spec.SLHDSASignatureParameterSpec;
 public class SLHDSASigner extends SignatureSpi{
     private SLHDSAImpl slhdsaImpl;
     private byte[] buffer;
-    private boolean forSigning;
+    private final SignatureState state = new SignatureState();
     private final int hashAlgorithm;
     private SLHDSASignatureParameterSpec signParams;
 
@@ -98,12 +100,24 @@ public class SLHDSASigner extends SignatureSpi{
             if (signParams == null) {
                 signParams = new SLHDSASignatureParameterSpec(false, false, null, null);
             }
-            slhdsaImpl = new SLHDSAImpl(parameterSetName, hashAlgorithm, null, ((SLHDSAPrivateKeyImpl)privateKey).getEncoded());
+            byte[] privateKeyEncoded = null;
+            SLHDSAImpl newImpl = null;
+            try {
+                privateKeyEncoded = ((SLHDSAPrivateKeyImpl) privateKey).getEncoded();
+                newImpl = new SLHDSAImpl(parameterSetName, hashAlgorithm, null, privateKeyEncoded);
+                commitImpl(newImpl, true);
+                newImpl = null;
+            } catch (InvalidKeyException | RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newImpl, e);
+                throw e;
+            } finally {
+                SensitiveDataUtil.clear(privateKeyEncoded);
+            }
+        } catch (InvalidKeyException e) {
+            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize SLHDSA: " + e.getMessage(), e);
         }
-        buffer = null;
-        forSigning = true;
     }
 
     @Override
@@ -118,12 +132,20 @@ public class SLHDSASigner extends SignatureSpi{
             if (signParams == null) {
                 signParams = new SLHDSASignatureParameterSpec(false, false, null, null);
             }
-            slhdsaImpl = new SLHDSAImpl(parameterSetName, hashAlgorithm, ((SLHDSAPublicKeyImpl)publicKey).getEncoded(), null);
+            SLHDSAImpl newImpl = null;
+            try {
+                newImpl = new SLHDSAImpl(parameterSetName, hashAlgorithm, ((SLHDSAPublicKeyImpl) publicKey).getEncoded(), null);
+                commitImpl(newImpl, false);
+                newImpl = null;
+            } catch (InvalidKeyException | RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newImpl, e);
+                throw e;
+            }
+        } catch (InvalidKeyException e) {
+            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize SLHDSA: " + e.getMessage(), e);
         }
-        buffer = null;
-        forSigning = false;
     }
 
     @Override
@@ -143,9 +165,7 @@ public class SLHDSASigner extends SignatureSpi{
 
     @Override
     protected byte[] engineSign() throws SignatureException {
-        if (!forSigning) {
-            throw new SignatureException("Not initialized for signing");
-        }
+        state.ensureSigning("SLHDSA");
         if (buffer == null) {
             throw new SignatureException("No data to sign");
         }
@@ -153,6 +173,8 @@ public class SLHDSASigner extends SignatureSpi{
             return slhdsaImpl.signData(buffer, signParams);
         } catch (Exception e) {
             throw new SignatureException("Sign failed: " + e.getMessage(), e);
+        } finally {
+            clearBuffer();
         }
     }
 
@@ -163,26 +185,13 @@ public class SLHDSASigner extends SignatureSpi{
 
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
-        try {
-            if (buffer == null) {
-                buffer = new byte[len];
-                System.arraycopy(b, off, buffer, 0, len);
-            } else {
-                byte[] newBuffer = new byte[buffer.length + len];
-                System.arraycopy(buffer, 0, newBuffer, 0, buffer.length);
-                System.arraycopy(b, off, newBuffer, buffer.length, len);
-                buffer = newBuffer;
-            }
-        } catch (Exception e) {
-            throw new SignatureException("Update failed: " + e.getMessage(), e);
-        }
+        state.ensureReadyForUpdate("SLHDSA");
+        buffer = SignerBuffer.append(buffer, b, off, len);
     }
 
     @Override
     protected boolean engineVerify(byte[] sigBytes) throws SignatureException {
-        if (forSigning) {
-            throw new SignatureException("Not initialized for verifiction");
-        }
+        state.ensureVerification("SLHDSA");
         if (buffer == null) {
             throw new SignatureException("No data to verify");
         }
@@ -190,6 +199,22 @@ public class SLHDSASigner extends SignatureSpi{
             return slhdsaImpl.verifySignature(buffer, sigBytes, signParams);
         } catch (Exception e) {
             throw new SignatureException("Verify failed: " + e.getMessage(), e);
+        } finally {
+            clearBuffer();
+        }
+    }
+
+    private void clearBuffer() {
+        buffer = SignerBuffer.clear(buffer);
+    }
+
+    private void commitImpl(SLHDSAImpl newImpl, boolean signing) throws InvalidKeyException {
+        slhdsaImpl = NativeResourceUtil.replaceAfterClosing(slhdsaImpl, newImpl,
+                failure -> new InvalidKeyException("Failed to close previous SLHDSA context", failure));
+        if (signing) {
+            state.activateSigning(this::clearBuffer);
+        } else {
+            state.activateVerification(this::clearBuffer);
         }
     }
     

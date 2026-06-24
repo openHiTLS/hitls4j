@@ -8,6 +8,7 @@ import java.security.ProviderException;
 import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.MLKEMImpl;
 import org.openhitls.crypto.jce.key.MLKEMPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.MLKEMPublicKeyImpl;
@@ -70,14 +71,20 @@ public class MLKEMKeyPairGenerator extends KeyPairGeneratorSpi {
         }
 
         try {
-            MLKEMImpl mlkem = new MLKEMImpl(parameterSet);
-            byte[] publicKey = mlkem.getEK();
-            byte[] privateKey = mlkem.getDk();
+            try (MLKEMImpl mlkem = new MLKEMImpl(parameterSet)) {
+                byte[] publicKey = mlkem.getEK();
+                byte[] privateKey = null;
+                try {
+                    privateKey = mlkem.getDk();
 
-            return new KeyPair(
-                    new MLKEMPublicKeyImpl(params, publicKey),
-                    new MLKEMPrivateKeyImpl(params, privateKey)
-            );
+                    return new KeyPair(
+                            new MLKEMPublicKeyImpl(params, publicKey),
+                            new MLKEMPrivateKeyImpl(params, privateKey)
+                    );
+                } finally {
+                    SensitiveDataUtil.clear(privateKey);
+                }
+            }
         } catch (Exception e) {
             throw new ProviderException("Failed to generate ML-KEM key pair", e);
         }

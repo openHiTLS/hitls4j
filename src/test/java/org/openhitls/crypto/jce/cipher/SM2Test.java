@@ -26,7 +26,7 @@ public class SM2Test extends BaseTest {
         }
 
         // Generate SM2 key pair
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC", HiTls4jProvider.PROVIDER_NAME);
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("SM2", HiTls4jProvider.PROVIDER_NAME);
         ECGenParameterSpec sm2Spec = new ECGenParameterSpec("sm2p256v1");
         keyGen.initialize(sm2Spec);
         KeyPair keyPair = keyGen.generateKeyPair();
@@ -54,7 +54,7 @@ public class SM2Test extends BaseTest {
             Security.addProvider(new HiTls4jProvider());
         }
 
-        KeyPairGenerator sm2KeyGen = KeyPairGenerator.getInstance("EC", HiTls4jProvider.PROVIDER_NAME);
+        KeyPairGenerator sm2KeyGen = KeyPairGenerator.getInstance("SM2", HiTls4jProvider.PROVIDER_NAME);
         sm2KeyGen.initialize(new ECGenParameterSpec("sm2p256v1"));
         KeyPair sm2KeyPair = sm2KeyGen.generateKeyPair();
 

@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.security.AlgorithmParameters;
+import java.security.Key;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -132,6 +133,82 @@ public class MLKEMTest extends BaseTest {
             byte[] receiverSharedKey2 = kaReceiver2.generateSecret();
 
             assertFalse("Shared secrets should be different with modified ciphertext", Arrays.equals(senderSharedKey, receiverSharedKey2));
+        }
+    }
+
+    @Test
+    public void testReinitClearsPendingEncapsulationSecret() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLKEMGenParameterSpec("ML-KEM-512"), new SecureRandom());
+
+        KeyPair firstPair = keyGen.generateKeyPair();
+        KeyPair secondPair = keyGen.generateKeyPair();
+
+        KeyAgreement reusedAgreement = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        reusedAgreement.init(firstPair.getPublic());
+        byte[] firstCiphertext = reusedAgreement.doPhase(null, true).getEncoded();
+
+        KeyAgreement firstReceiver = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        firstReceiver.init(firstPair.getPrivate());
+        firstReceiver.doPhase(new MLKEMCiphertextKey(firstCiphertext), true);
+        byte[] staleSecret = firstReceiver.generateSecret();
+
+        KeyAgreement secondSender = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        secondSender.init(secondPair.getPublic());
+        Key secondCiphertextKey = secondSender.doPhase(null, true);
+        byte[] expectedSecondSecret = secondSender.generateSecret();
+
+        reusedAgreement.init(secondPair.getPrivate());
+        reusedAgreement.doPhase(secondCiphertextKey, true);
+        byte[] actualSecret = reusedAgreement.generateSecret();
+
+        assertArrayEquals("Reinitialized agreement should decapsulate the new ciphertext",
+                expectedSecondSecret, actualSecret);
+        assertFalse("Reinitialized agreement must not return a stale encapsulation secret",
+                Arrays.equals(staleSecret, actualSecret));
+    }
+
+    @Test
+    public void testFailedInitClearsPendingEncapsulationSecret() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLKEMGenParameterSpec("ML-KEM-512"), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+
+        KeyAgreement keyAgreement = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        keyAgreement.init(keyPair.getPublic());
+        keyAgreement.doPhase(null, true);
+
+        try {
+            keyAgreement.init(keyPair.getPublic(), new MLKEMParameterSpec("ML-KEM-invalid"));
+            fail("Expected InvalidKeyException for unsupported ML-KEM parameter set");
+        } catch (java.security.InvalidKeyException expected) {
+            // Expected.
+        }
+
+        try {
+            keyAgreement.generateSecret();
+            fail("Failed init must clear the pending encapsulation secret");
+        } catch (IllegalStateException expected) {
+            // Expected.
+        }
+    }
+
+    @Test
+    public void testDecapsulationPhaseClearsPendingEncapsulationSecret() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLKEMGenParameterSpec("ML-KEM-512"), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+
+        KeyAgreement keyAgreement = KeyAgreement.getInstance("ML-KEM", HiTls4jProvider.PROVIDER_NAME);
+        keyAgreement.init(keyPair.getPublic());
+        Key ciphertextKey = keyAgreement.doPhase(null, true);
+
+        keyAgreement.doPhase(ciphertextKey, true);
+        try {
+            keyAgreement.generateSecret();
+            fail("Expected IllegalStateException after decapsulation phase without private key");
+        } catch (IllegalStateException expected) {
+            // Expected.
         }
     }
 

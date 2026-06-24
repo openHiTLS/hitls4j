@@ -8,6 +8,7 @@ import java.security.ProviderException;
 import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.FrodoKEMImpl;
 import org.openhitls.crypto.jce.key.FrodoKEMPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.FrodoKEMPublicKeyImpl;
@@ -70,14 +71,20 @@ public class FrodoKEMKeyPairGenerator extends KeyPairGeneratorSpi {
         }
 
         try {
-            FrodoKEMImpl frodoKem = new FrodoKEMImpl(parameterSet);
-            byte[] publicKey = frodoKem.getEK();
-            byte[] privateKey = frodoKem.getDk();
+            try (FrodoKEMImpl frodoKem = new FrodoKEMImpl(parameterSet)) {
+                byte[] publicKey = frodoKem.getEK();
+                byte[] privateKey = null;
+                try {
+                    privateKey = frodoKem.getDk();
 
-            return new KeyPair(
-                    new FrodoKEMPublicKeyImpl(params, publicKey),
-                    new FrodoKEMPrivateKeyImpl(params, privateKey)
-            );
+                    return new KeyPair(
+                            new FrodoKEMPublicKeyImpl(params, publicKey),
+                            new FrodoKEMPrivateKeyImpl(params, privateKey)
+                    );
+                } finally {
+                    SensitiveDataUtil.clear(privateKey);
+                }
+            }
         } catch (Exception e) {
             throw new ProviderException("Failed to generate FrodoKEM key pair", e);
         }

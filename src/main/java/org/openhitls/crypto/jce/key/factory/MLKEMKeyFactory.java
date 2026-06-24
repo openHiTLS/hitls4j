@@ -22,6 +22,9 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
 
     @Override
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof MLKEMPrivateKeySpec) {
             MLKEMPrivateKeySpec mlkemSpec = (MLKEMPrivateKeySpec) keySpec;
             return new MLKEMPrivateKeyImpl(mlkemSpec.getParams(), mlkemSpec.getEncoded());
@@ -34,6 +37,9 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
 
     @Override
     protected PublicKey engineGeneratePublic(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof MLKEMPublicKeySpec) {
             MLKEMPublicKeySpec mlkemSpec = (MLKEMPublicKeySpec) keySpec;
             return new MLKEMPublicKeyImpl(mlkemSpec.getParams(), mlkemSpec.getEncoded());
@@ -48,6 +54,9 @@ public class MLKEMKeyFactory extends KeyFactorySpi{
     protected <T extends KeySpec> T engineGetKeySpec(Key key, Class<T> keySpec) throws InvalidKeySpecException {
         if (key == null) {
             throw new InvalidKeySpecException("Key cannot be null");
+        }
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
         }
 
         if (key instanceof MLKEMPublicKeyImpl) {

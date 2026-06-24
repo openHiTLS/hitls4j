@@ -1,6 +1,7 @@
 package org.openhitls.crypto.jce.key;
 
 import java.math.BigInteger;
+import java.util.Arrays;
 
 import org.openhitls.crypto.core.CryptoNative;
 
@@ -19,11 +20,33 @@ public final class RSAKeyCodec {
         if (publicExponent == null) {
             throw new IllegalArgumentException("RSA private key public exponent cannot be null");
         }
-        return CryptoNative.rsaEncodePrivateKey(RSAKeyUtil.toUnsignedBytes(modulus),
-                RSAKeyUtil.toUnsignedBytes(privateExponent), RSAKeyUtil.toUnsignedBytes(publicExponent),
-                toNullableUnsignedBytes(primeP), toNullableUnsignedBytes(primeQ),
-                toNullableUnsignedBytes(primeExponentP), toNullableUnsignedBytes(primeExponentQ),
-                toNullableUnsignedBytes(crtCoefficient));
+        byte[] modulusBytes = null;
+        byte[] privateExponentBytes = null;
+        byte[] publicExponentBytes = null;
+        byte[] primePBytes = null;
+        byte[] primeQBytes = null;
+        byte[] primeExponentPBytes = null;
+        byte[] primeExponentQBytes = null;
+        byte[] crtCoefficientBytes = null;
+        try {
+            modulusBytes = RSAKeyUtil.toUnsignedBytes(modulus);
+            privateExponentBytes = RSAKeyUtil.toUnsignedBytes(privateExponent);
+            publicExponentBytes = RSAKeyUtil.toUnsignedBytes(publicExponent);
+            primePBytes = toNullableUnsignedBytes(primeP);
+            primeQBytes = toNullableUnsignedBytes(primeQ);
+            primeExponentPBytes = toNullableUnsignedBytes(primeExponentP);
+            primeExponentQBytes = toNullableUnsignedBytes(primeExponentQ);
+            crtCoefficientBytes = toNullableUnsignedBytes(crtCoefficient);
+            return CryptoNative.rsaEncodePrivateKey(modulusBytes, privateExponentBytes, publicExponentBytes,
+                    primePBytes, primeQBytes, primeExponentPBytes, primeExponentQBytes, crtCoefficientBytes);
+        } finally {
+            clear(privateExponentBytes);
+            clear(primePBytes);
+            clear(primeQBytes);
+            clear(primeExponentPBytes);
+            clear(primeExponentQBytes);
+            clear(crtCoefficientBytes);
+        }
     }
 
     public static BigInteger[] decodePublic(byte[] x509EncodedKey) {
@@ -39,17 +62,36 @@ public final class RSAKeyCodec {
 
     public static BigInteger[] decodePrivate(byte[] pkcs8EncodedKey) {
         byte[][] key = CryptoNative.rsaDecodePrivateKey(pkcs8EncodedKey);
-        if (key == null || (key.length != 3 && key.length != 8)) {
-            throw new IllegalStateException("Invalid decoded RSA private key");
+        try {
+            if (key == null || (key.length != 3 && key.length != 8)) {
+                throw new IllegalStateException("Invalid decoded RSA private key");
+            }
+            BigInteger[] result = new BigInteger[key.length];
+            for (int i = 0; i < key.length; i++) {
+                result[i] = new BigInteger(1, key[i]);
+            }
+            return result;
+        } finally {
+            clearAll(key);
         }
-        BigInteger[] result = new BigInteger[key.length];
-        for (int i = 0; i < key.length; i++) {
-            result[i] = new BigInteger(1, key[i]);
-        }
-        return result;
     }
 
     private static byte[] toNullableUnsignedBytes(BigInteger value) {
         return value == null ? null : RSAKeyUtil.toUnsignedBytes(value);
+    }
+
+    private static void clear(byte[] value) {
+        if (value != null) {
+            Arrays.fill(value, (byte) 0);
+        }
+    }
+
+    private static void clearAll(byte[][] values) {
+        if (values == null) {
+            return;
+        }
+        for (byte[] value : values) {
+            clear(value);
+        }
     }
 }

@@ -10,14 +10,14 @@ public class SLHDSAPrivateKeyImpl implements SLHDSAPrivateKey{
     private final byte[] privateKeyData; // raw private key data, not support yet
 
     public SLHDSAPrivateKeyImpl(byte[] encoded) {
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.params = null;
         this.privateKeyData = null;
     }
 
     public SLHDSAPrivateKeyImpl(SLHDSAParameterSpec params, byte[] encoded) {
         this.params = params;
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.privateKeyData = null;
     }
 

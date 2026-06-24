@@ -36,7 +36,7 @@ HiTLS4J provides the following cryptographic functionalities:
 ### Key Generation
 - **RSA**: Key pair generation
 - **DSA**: Key pair generation
-- **EC**: Key pair generation for various curves (secp256r1, secp384r1, secp521r1, sm2p256v1)
+- **EC/ECDSA/SM2**: Key pair generation for various curves (secp256r1, secp384r1, secp521r1, sm2p256v1)
 - **Symmetric Keys**: Generation for AES and SM4
 
 ### Provider Integration
@@ -344,7 +344,7 @@ import java.security.spec.ECGenParameterSpec;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 
 // Generate key pair
-KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC", HiTls4jProvider.PROVIDER_NAME);
+KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ECDSA", HiTls4jProvider.PROVIDER_NAME);
 keyGen.initialize(new ECGenParameterSpec("secp256r1"));
 KeyPair keyPair = keyGen.generateKeyPair();
 
@@ -362,6 +362,31 @@ signature.initVerify(keyPair.getPublic());
 signature.update(data);
 boolean valid = signature.verify(signatureBytes);
 ```
+
+### EC Key Encoding and Decoding
+
+HiTLS4J registers generic `EC` key generation, key factory, and algorithm
+parameters services for compatibility. It also registers explicit `ECDSA` and
+`SM2` key pair generator and key factory services for curve-family specific use.
+EC algorithm parameters are exposed through the generic `EC` service. `ECDSA`
+accepts `secp256r1`, `secp384r1`, and `secp521r1`; `SM2` accepts `sm2p256v1`;
+generic `EC` accepts all supported EC curves.
+
+EC public keys can be imported and exported with X.509
+`SubjectPublicKeyInfo`, and EC private keys can be imported and exported with
+PKCS#8. The EC key factory parses named-curve OIDs and rejects encoded keys
+whose curve family does not match the requested factory, such as importing an
+SM2 key through the `ECDSA` factory.
+
+EC algorithm parameters can be imported and exported as DER named-curve object
+identifiers for `secp256r1`, `secp384r1`, `secp521r1`, and `sm2p256v1`.
+
+Standard JDK EC public and private key objects are accepted by the ECDSA
+signature implementation. This allows certificates parsed by Java's default
+`CertificateFactory` to be verified with HiTLS4J signatures when the
+certificate uses a supported ECDSA curve. HiTLS4J does not implement its own
+X.509 `CertificateFactory`; use the JDK `CertificateFactory` for certificate
+parsing.
 
 ### Using MLDSA
 ```java
@@ -454,7 +479,9 @@ byte[] receiverSharedKey = kaReceiver.generateSecret();
 ### Key Generation Algorithms
 - `RSA`
 - `DSA`
-- `EC` (with curves: secp256r1, secp384r1, secp521r1, sm2p256v1)
+- `EC` (generic, with curves: secp256r1, secp384r1, secp521r1, sm2p256v1)
+- `ECDSA` (with curves: secp256r1, secp384r1, secp521r1)
+- `SM2` (with curve: sm2p256v1)
 - `AES`
 - `SM4`
 

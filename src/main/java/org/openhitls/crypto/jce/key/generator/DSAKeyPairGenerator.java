@@ -10,6 +10,7 @@ import java.security.interfaces.DSAPublicKey;
 import java.security.interfaces.DSAPrivateKey;
 import java.security.PublicKey;
 import java.security.PrivateKey;
+import java.util.Arrays;
 import javax.crypto.spec.SecretKeySpec;
 import org.openhitls.crypto.core.asymmetric.DSAImpl;
 import org.openhitls.crypto.jce.key.DSAPrivateKeyImpl;
@@ -43,48 +44,53 @@ public class DSAKeyPairGenerator extends KeyPairGeneratorSpi {
 
     @Override
     public KeyPair generateKeyPair() {
+        byte[] privKeyBytes = null;
         try {
-            DSAImpl dsa = new DSAImpl();
+            try (DSAImpl dsa = new DSAImpl()) {
+                // Set parameters if provided
+                if (params != null) {
+                    byte[] p = params.getP().toByteArray();
+                    byte[] q = params.getQ().toByteArray();
+                    byte[] g = params.getG().toByteArray();
 
-            // Set parameters if provided
-            if (params != null) {
-                byte[] p = params.getP().toByteArray();
-                byte[] q = params.getQ().toByteArray();
-                byte[] g = params.getG().toByteArray();
+                    // Remove leading zeros if present
+                    if (p[0] == 0) {
+                        byte[] tmp = new byte[p.length - 1];
+                        System.arraycopy(p, 1, tmp, 0, tmp.length);
+                        p = tmp;
+                    }
+                    if (q[0] == 0) {
+                        byte[] tmp = new byte[q.length - 1];
+                        System.arraycopy(q, 1, tmp, 0, tmp.length);
+                        q = tmp;
+                    }
+                    if (g[0] == 0) {
+                        byte[] tmp = new byte[g.length - 1];
+                        System.arraycopy(g, 1, tmp, 0, tmp.length);
+                        g = tmp;
+                    }
 
-                // Remove leading zeros if present
-                if (p[0] == 0) {
-                    byte[] tmp = new byte[p.length - 1];
-                    System.arraycopy(p, 1, tmp, 0, tmp.length);
-                    p = tmp;
-                }
-                if (q[0] == 0) {
-                    byte[] tmp = new byte[q.length - 1];
-                    System.arraycopy(q, 1, tmp, 0, tmp.length);
-                    q = tmp;
-                }
-                if (g[0] == 0) {
-                    byte[] tmp = new byte[g.length - 1];
-                    System.arraycopy(g, 1, tmp, 0, tmp.length);
-                    g = tmp;
+                    dsa.setParameters(p, q, g);
                 }
 
-                dsa.setParameters(p, q, g);
+                // Generate the key pair
+                dsa.generateKeyPair();
+
+                // Get the generated keys
+                byte[] pubKeyBytes = dsa.getPublicKey();
+                privKeyBytes = dsa.getPrivateKey();
+
+                // Create JCE key objects
+                DSAPublicKey publicKey = new DSAPublicKeyImpl(params, pubKeyBytes);
+                DSAPrivateKey privateKey = new DSAPrivateKeyImpl(params, privKeyBytes);
+                return new KeyPair(publicKey, privateKey);
             }
-
-            // Generate the key pair
-            dsa.generateKeyPair();
-
-            // Get the generated keys
-            byte[] pubKeyBytes = dsa.getPublicKey();
-            byte[] privKeyBytes = dsa.getPrivateKey();
-
-            // Create JCE key objects
-            DSAPublicKey publicKey = new DSAPublicKeyImpl(params, pubKeyBytes);
-            DSAPrivateKey privateKey = new DSAPrivateKeyImpl(params, privKeyBytes);
-            return new KeyPair(publicKey, privateKey);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate DSA key pair", e);
+        } finally {
+            if (privKeyBytes != null) {
+                Arrays.fill(privKeyBytes, (byte) 0);
+            }
         }
     }
-} 
+}

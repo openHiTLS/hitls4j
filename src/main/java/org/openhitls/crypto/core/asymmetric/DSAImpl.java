@@ -2,6 +2,9 @@ package org.openhitls.crypto.core.asymmetric;
 
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil.KeyMaterial;
 
 public class DSAImpl extends NativeResource {
     private boolean parametersSet = false;
@@ -15,7 +18,12 @@ public class DSAImpl extends NativeResource {
 
     public DSAImpl(byte[] publicKey, byte[] privateKey) {
         super(CryptoNative.dsaCreateContext(), DSAImpl::freeNativeContext);
-        setKeys(publicKey, privateKey);
+        try {
+            setKeys(publicKey, privateKey);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     private static void freeNativeContext(long nativeContext) {
@@ -25,9 +33,19 @@ public class DSAImpl extends NativeResource {
     }
 
     public void setKeys(byte[] publicKey, byte[] privateKey) {
-        this.publicKey = publicKey != null ? publicKey.clone() : null;
-        this.privateKey = privateKey != null ? privateKey.clone() : null;
-        CryptoNative.dsaSetKeys(nativeContext, publicKey, privateKey);
+        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(publicKey, privateKey);
+        boolean updated = false;
+        try {
+            CryptoNative.dsaSetKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey());
+            updated = true;
+            SensitiveDataUtil.clear(this.privateKey);
+            this.publicKey = keyMaterial.publicKey();
+            this.privateKey = keyMaterial.privateKey();
+        } finally {
+            if (!updated) {
+                keyMaterial.clearPrivate();
+            }
+        }
     }
 
     public void setParameters(byte[] p, byte[] q, byte[] g) {
@@ -51,12 +69,15 @@ public class DSAImpl extends NativeResource {
             throw new IllegalStateException("Failed to generate DSA key pair");
         }
 
-        publicKey = keyPair[0];
-        privateKey = keyPair[1];
-
-        if (publicKey == null || privateKey == null) {
+        if (keyPair[0] == null || keyPair[1] == null) {
+            SensitiveDataUtil.clear(keyPair.length > 1 ? keyPair[1] : null);
             throw new IllegalStateException("Generated DSA key pair is invalid");
         }
+
+        byte[] oldPrivateKey = privateKey;
+        publicKey = keyPair[0];
+        privateKey = keyPair[1];
+        SensitiveDataUtil.clear(oldPrivateKey);
     }
 
     public byte[] getPublicKey() {
@@ -90,4 +111,4 @@ public class DSAImpl extends NativeResource {
         }
         return CryptoNative.dsaVerify(nativeContext, data, signature, hashAlgorithm);
     }
-} 
+}

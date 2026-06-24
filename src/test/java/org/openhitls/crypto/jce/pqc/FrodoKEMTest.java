@@ -3,6 +3,7 @@ package org.openhitls.crypto.jce.pqc;
 import org.junit.Test;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 import org.openhitls.crypto.jce.spec.FrodoKEMGenParameterSpec;
+import org.openhitls.crypto.jce.spec.FrodoKEMParameterSpec;
 import org.openhitls.crypto.jce.key.FrodoKEMCiphertextKey;
 
 import javax.crypto.KeyAgreement;
@@ -115,6 +116,63 @@ public class FrodoKEMTest {
         modifiedReceiver.doPhase(new FrodoKEMCiphertextKey(modifiedCiphertext), true);
         assertFalse("Shared secret should differ with modified ciphertext",
                 Arrays.equals(senderSharedSecret, modifiedReceiver.generateSecret()));
+    }
+
+    @Test
+    public void testReinitClearsPendingEncapsulationSecret() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("FrodoKEM", HiTls4jProvider.PROVIDER_NAME);
+        kpg.initialize(new FrodoKEMGenParameterSpec("FrodoKEM-640-SHAKE"));
+
+        KeyPair firstPair = kpg.generateKeyPair();
+        KeyPair secondPair = kpg.generateKeyPair();
+
+        KeyAgreement reusedAgreement = KeyAgreement.getInstance("FrodoKEM", HiTls4jProvider.PROVIDER_NAME);
+        reusedAgreement.init(firstPair.getPublic());
+        Key firstCiphertextKey = reusedAgreement.doPhase(null, true);
+
+        KeyAgreement firstReceiver = KeyAgreement.getInstance("FrodoKEM", HiTls4jProvider.PROVIDER_NAME);
+        firstReceiver.init(firstPair.getPrivate());
+        firstReceiver.doPhase(firstCiphertextKey, true);
+        byte[] staleSecret = firstReceiver.generateSecret();
+
+        KeyAgreement secondSender = KeyAgreement.getInstance("FrodoKEM", HiTls4jProvider.PROVIDER_NAME);
+        secondSender.init(secondPair.getPublic());
+        Key secondCiphertextKey = secondSender.doPhase(null, true);
+        byte[] expectedSecondSecret = secondSender.generateSecret();
+
+        reusedAgreement.init(secondPair.getPrivate());
+        reusedAgreement.doPhase(secondCiphertextKey, true);
+        byte[] actualSecret = reusedAgreement.generateSecret();
+
+        assertArrayEquals("Reinitialized agreement should decapsulate the new ciphertext",
+                expectedSecondSecret, actualSecret);
+        assertFalse("Reinitialized agreement must not return a stale encapsulation secret",
+                Arrays.equals(staleSecret, actualSecret));
+    }
+
+    @Test
+    public void testFailedInitClearsPendingEncapsulationSecret() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("FrodoKEM", HiTls4jProvider.PROVIDER_NAME);
+        kpg.initialize(new FrodoKEMGenParameterSpec("FrodoKEM-640-SHAKE"));
+        KeyPair keyPair = kpg.generateKeyPair();
+
+        KeyAgreement keyAgreement = KeyAgreement.getInstance("FrodoKEM", HiTls4jProvider.PROVIDER_NAME);
+        keyAgreement.init(keyPair.getPublic());
+        keyAgreement.doPhase(null, true);
+
+        try {
+            keyAgreement.init(keyPair.getPublic(), new FrodoKEMParameterSpec("FrodoKEM-invalid"));
+            fail("Expected InvalidKeyException for unsupported FrodoKEM parameter set");
+        } catch (java.security.InvalidKeyException expected) {
+            // Expected.
+        }
+
+        try {
+            keyAgreement.generateSecret();
+            fail("Failed init must clear the pending encapsulation secret");
+        } catch (IllegalStateException expected) {
+            // Expected.
+        }
     }
 
     @Test

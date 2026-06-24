@@ -2,6 +2,7 @@ package org.openhitls.crypto.jce.digest;
 
 import java.security.MessageDigestSpi;
 import org.openhitls.crypto.core.hash.MessageDigestImpl;
+import org.openhitls.crypto.core.NativeResourceUtil;
 
 public class MessageDigest extends MessageDigestSpi {
     private MessageDigestImpl md;
@@ -38,8 +39,15 @@ public class MessageDigest extends MessageDigestSpi {
 
     @Override
     protected void engineReset() {
-        // Create a new instance to reset
-        this.md = new MessageDigestImpl(algorithm);
+        MessageDigestImpl oldMd = md;
+        MessageDigestImpl newMd = new MessageDigestImpl(algorithm);
+        try {
+            md = NativeResourceUtil.replaceAfterClosing(oldMd, newMd, failure -> failure);
+            newMd = null;
+        } catch (RuntimeException e) {
+            NativeResourceUtil.closeSuppressing(newMd, e);
+            throw e;
+        }
     }
 
     public static final class SHA224 extends MessageDigest {

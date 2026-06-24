@@ -17,10 +17,13 @@ public abstract class NativeResource implements AutoCloseable {
 
     @Override
     public synchronized void close() {
-        if (!closed && nativeContext != 0 && freeCallback != null) {
-            freeCallback.freeNativeContext(nativeContext);
+        if (closed) {
+            return;
         }
         closed = true;
+        if (nativeContext != 0 && freeCallback != null) {
+            freeCallback.freeNativeContext(nativeContext);
+        }
     }
 
     @Override

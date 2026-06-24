@@ -1,5 +1,7 @@
 package org.openhitls.crypto.jce.key.generator;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
+
 import javax.crypto.KeyGeneratorSpi;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -42,7 +44,11 @@ public class SymmetricCipherKeyGenerator extends KeyGeneratorSpi {
         }
 
         byte[] keyBytes = new byte[keySize / 8];
-        random.nextBytes(keyBytes);
-        return new SecretKeySpec(keyBytes, "AES");
+        try {
+            random.nextBytes(keyBytes);
+            return new SecretKeySpec(keyBytes, "AES");
+        } finally {
+            SensitiveDataUtil.clear(keyBytes);
+        }
     }
 }

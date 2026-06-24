@@ -4,6 +4,9 @@ import java.security.InvalidKeyException;
 import java.security.SignatureException;
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil.KeyMaterial;
 import org.openhitls.crypto.jce.signer.RSAPadding;
 import org.openhitls.crypto.jce.signer.RSAPadding.PSSParameterSpec;
 
@@ -23,7 +26,12 @@ public class RSAImpl extends NativeResource {
 
     public RSAImpl(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
         super(createContextForKeys(publicKey, privateKey, publicExponent), RSAImpl::freeNativeContext);
-        setKeys(publicKey, privateKey, publicExponent);
+        try {
+            setKeys(publicKey, privateKey, publicExponent);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     private static void freeNativeContext(long nativeContext) {
@@ -34,9 +42,19 @@ public class RSAImpl extends NativeResource {
 
     public void setKeys(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
         requirePublicExponent(publicKey, privateKey, publicExponent);
-        this.publicKey = publicKey != null ? publicKey.clone() : null;
-        this.privateKey = privateKey != null ? privateKey.clone() : null;
-        CryptoNative.rsaSetKeys(nativeContext, publicKey, privateKey, publicExponent);
+        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(publicKey, privateKey);
+        boolean updated = false;
+        try {
+            CryptoNative.rsaSetKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey(), publicExponent);
+            updated = true;
+            SensitiveDataUtil.clear(this.privateKey);
+            this.publicKey = keyMaterial.publicKey();
+            this.privateKey = keyMaterial.privateKey();
+        } finally {
+            if (!updated) {
+                keyMaterial.clearPrivate();
+            }
+        }
     }
 
     public void setParameters(byte[] e, int keyBits) {
@@ -121,4 +139,5 @@ public class RSAImpl extends NativeResource {
             throw new IllegalArgumentException(PUBLIC_EXPONENT_REQUIRED);
         }
     }
-} 
+
+}

@@ -2,6 +2,9 @@ package org.openhitls.crypto.core.pqc;
 
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil.KeyMaterial;
 
 public class MLKEMImpl extends NativeResource {
     private byte[] encapKey;
@@ -11,24 +14,49 @@ public class MLKEMImpl extends NativeResource {
     public MLKEMImpl(String parameterSet) {
         super(initContext(parameterSet), CryptoNative::mlkemFreeContext);
         this.parameterSet = parameterSet;
-        byte[][] keyPair = CryptoNative.mlkemGenerateKeyPair(nativeContext, this.parameterSet);
-        this.encapKey = keyPair[0];
-        this.decapKey = keyPair[1];
+        byte[][] keyPair = null;
+        try {
+            keyPair = CryptoNative.mlkemGenerateKeyPair(nativeContext, this.parameterSet);
+            if (keyPair == null || keyPair.length != 2 || keyPair[0] == null || keyPair[1] == null) {
+                throw new IllegalStateException("Generated ML-KEM key pair is invalid");
+            }
+            this.encapKey = keyPair[0];
+            this.decapKey = keyPair[1];
+        } catch (RuntimeException | Error e) {
+            SensitiveDataUtil.clear(keyPair != null && keyPair.length > 1 ? keyPair[1] : null);
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     public MLKEMImpl(String parameterSet, byte[] encapKey, byte[] decapKey) {
         super(initContext(parameterSet), CryptoNative::mlkemFreeContext);
         this.parameterSet = parameterSet;
-        setKeys(encapKey, decapKey);
+        try {
+            setKeys(encapKey, decapKey);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     void setKeys(byte[] encapKey, byte[] decapKey) {
         if (encapKey == null && decapKey == null) {
             throw new IllegalArgumentException("At least one key must be non-null");
         }
-        CryptoNative.mlkemSetKeys(nativeContext, encapKey, decapKey);
-        this.encapKey = encapKey;
-        this.decapKey = decapKey;
+        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(encapKey, decapKey);
+        boolean updated = false;
+        try {
+            CryptoNative.mlkemSetKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey());
+            updated = true;
+            SensitiveDataUtil.clear(this.decapKey);
+            this.encapKey = keyMaterial.publicKey();
+            this.decapKey = keyMaterial.privateKey();
+        } finally {
+            if (!updated) {
+                keyMaterial.clearPrivate();
+            }
+        }
     }
 
     private static long initContext(String parameterSet) {
@@ -39,11 +67,11 @@ public class MLKEMImpl extends NativeResource {
     }
 
     public byte[] getEK() {
-        return encapKey;
+        return encapKey != null ? encapKey.clone() : null;
     }
 
     public byte[] getDk() {
-        return decapKey;
+        return decapKey != null ? decapKey.clone() : null;
     }
 
     public String getParameterSet() {

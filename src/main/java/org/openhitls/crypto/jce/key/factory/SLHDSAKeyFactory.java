@@ -20,6 +20,9 @@ public class SLHDSAKeyFactory extends KeyFactorySpi{
 
     @Override
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof PKCS8EncodedKeySpec) {
             return new SLHDSAPrivateKeyImpl(((PKCS8EncodedKeySpec) keySpec).getEncoded());
         } else if (keySpec instanceof SLHDSAPrivateKeySpec) {
@@ -31,6 +34,9 @@ public class SLHDSAKeyFactory extends KeyFactorySpi{
 
     @Override
     protected PublicKey engineGeneratePublic(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof X509EncodedKeySpec) {
             return new SLHDSAPublicKeyImpl(((X509EncodedKeySpec) keySpec).getEncoded());
         } else if (keySpec instanceof SLHDSAPublicKeySpec) {
@@ -45,14 +51,17 @@ public class SLHDSAKeyFactory extends KeyFactorySpi{
         if (key == null) {
             throw new InvalidKeySpecException("Key cannot be null");
         }
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
 
         if (key instanceof SLHDSAPrivateKeyImpl) {
             SLHDSAPrivateKeyImpl slhdsaKey = (SLHDSAPrivateKeyImpl) key;
-            
+
             if (keySpec.isAssignableFrom(PKCS8EncodedKeySpec.class)) {
                 return keySpec.cast(new PKCS8EncodedKeySpec(key.getEncoded()));
             }
-            
+
             if (keySpec.isAssignableFrom(SLHDSAPrivateKeySpec.class)) {
                 SLHDSAParameterSpec params = slhdsaKey.getParams();
                 if (params == null) {
@@ -72,7 +81,7 @@ public class SLHDSAKeyFactory extends KeyFactorySpi{
                 if (params == null) {
                     throw new InvalidKeySpecException("Key parameters cannot be null");
                 }
-                return keySpec.cast(new SLHDSAPublicKeySpec(slhdsaKey.getEncoded(), params));   
+                return keySpec.cast(new SLHDSAPublicKeySpec(slhdsaKey.getEncoded(), params));
             }
         }
 

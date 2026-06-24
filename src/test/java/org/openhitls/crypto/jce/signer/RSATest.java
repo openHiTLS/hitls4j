@@ -139,6 +139,40 @@ public class RSATest {
     }
 
     @Test
+    public void testRSASignatureUpdatesAreAccumulated() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] prefix = "authenticated-prefix:".getBytes(StandardCharsets.UTF_8);
+        byte[] suffix = "authenticated-suffix".getBytes(StandardCharsets.UTF_8);
+        byte[] message = concat(prefix, suffix);
+
+        String[] algorithms = {"SHA256withRSA", "SHA256withRSA/PSS"};
+        for (String algorithm : algorithms) {
+            byte[] signature = signInTwoUpdates(algorithm, keyPair.getPrivate(), prefix, suffix);
+
+            assertTrue("Split update signature should verify full message for " + algorithm,
+                    verify(algorithm, keyPair.getPublic(), message, signature));
+            assertTrue("Split update signature should verify split message for " + algorithm,
+                    verifyInTwoUpdatesOrFalse(algorithm, keyPair.getPublic(), prefix, suffix, signature));
+        }
+    }
+
+    @Test
+    public void testRSASignatureDoesNotIgnoreEarlierUpdateBlocks() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] attackerControlledPrefix = "attacker-controlled-prefix:".getBytes(StandardCharsets.UTF_8);
+        byte[] signedSuffix = "signed-suffix".getBytes(StandardCharsets.UTF_8);
+
+        String[] algorithms = {"SHA256withRSA", "SHA256withRSA/PSS"};
+        for (String algorithm : algorithms) {
+            byte[] suffixOnlySignature = sign(algorithm, keyPair.getPrivate(), signedSuffix);
+
+            assertFalse("A suffix-only signature must not verify prefix + suffix for " + algorithm,
+                    verifyInTwoUpdatesOrFalse(algorithm, keyPair.getPublic(),
+                            attackerControlledPrefix, signedSuffix, suffixOnlySignature));
+        }
+    }
+
+    @Test
     public void testRSARequiresInitialization() throws Exception {
         Signature signature = Signature.getInstance("SHA256withRSA", HiTls4jProvider.PROVIDER_NAME);
         byte[] data = "data".getBytes(StandardCharsets.UTF_8);
@@ -163,6 +197,101 @@ public class RSATest {
         } catch (SignatureException expected) {
             // Expected.
         }
+    }
+
+    @Test
+    public void testRSAFailedInitPreservesPreviousState() throws Exception {
+        KeyPair rsaKeyPair = generateKeyPair();
+        KeyPair ecKeyPair = generateEcKeyPair();
+        byte[] data = "RSA state after failed init".getBytes(StandardCharsets.UTF_8);
+
+        Signature signer = Signature.getInstance("SHA256withRSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(rsaKeyPair.getPrivate());
+        signer.update(data);
+        try {
+            signer.initVerify(ecKeyPair.getPublic());
+            fail("Expected InvalidKeyException for EC public key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+        byte[] preservedSignature = signer.sign();
+        assertTrue("Failed initVerify must leave the previous signing state usable",
+                verify("SHA256withRSA", rsaKeyPair.getPublic(), data, preservedSignature));
+
+        byte[] signature = sign("SHA256withRSA", rsaKeyPair.getPrivate(), data);
+        Signature verifier = Signature.getInstance("SHA256withRSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(rsaKeyPair.getPublic());
+        verifier.update(data);
+        try {
+            verifier.initSign(ecKeyPair.getPrivate());
+            fail("Expected InvalidKeyException for EC private key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+        assertTrue("Failed initSign must leave the previous verification state usable",
+                verifier.verify(signature));
+    }
+
+    @Test
+    public void testRSASignClearsBufferedMessageBytes() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "sensitive rsa signing payload that grows the internal buffer".getBytes(StandardCharsets.UTF_8);
+        RSASigner signer = new RSASigner.SHA256withRSA();
+
+        signer.engineInitSign(keyPair.getPrivate());
+        signer.engineUpdate(data, 0, data.length);
+
+        byte[] signature = signer.engineSign();
+
+        assertNotNull(signature);
+        assertMessageBufferCleared(signer);
+    }
+
+    @Test
+    public void testRSAVerifyClearsBufferedMessageBytes() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "sensitive rsa verification payload that grows the internal buffer".getBytes(StandardCharsets.UTF_8);
+        byte[] signature = sign("SHA256withRSA", keyPair.getPrivate(), data);
+        RSASigner verifier = new RSASigner.SHA256withRSA();
+
+        verifier.engineInitVerify(keyPair.getPublic());
+        verifier.engineUpdate(data, 0, data.length);
+
+        assertTrue(verifier.engineVerify(signature));
+        assertMessageBufferCleared(verifier);
+    }
+
+    @Test
+    public void testRSAVerifyClearsBufferedMessageBytesWhenSignatureIsNull() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "sensitive rsa verification payload before null signature".getBytes(StandardCharsets.UTF_8);
+        RSASigner verifier = new RSASigner.SHA256withRSA();
+
+        verifier.engineInitVerify(keyPair.getPublic());
+        verifier.engineUpdate(data, 0, data.length);
+
+        try {
+            verifier.engineVerify(null);
+            fail("Expected null signature to be rejected");
+        } catch (SignatureException expected) {
+            // expected
+        }
+        assertMessageBufferCleared(verifier);
+    }
+
+    @Test
+    public void testRSAReinitClearsPreviousBufferedMessageBytes() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "sensitive rsa payload buffered before reinitialization".getBytes(StandardCharsets.UTF_8);
+        RSASigner signer = new RSASigner.SHA256withRSA();
+
+        signer.engineInitSign(keyPair.getPrivate());
+        signer.engineUpdate(data, 0, data.length);
+        RSASigner.MessageBufferStatus previousBuffer = signer.messageBufferStatus();
+
+        signer.engineInitVerify(keyPair.getPublic());
+
+        assertMessageBufferCleared(previousBuffer);
     }
 
     @Test
@@ -941,10 +1070,25 @@ public class RSATest {
         return keyGen.generateKeyPair();
     }
 
+    private static KeyPair generateEcKeyPair() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(256, new SecureRandom());
+        return keyGen.generateKeyPair();
+    }
+
     private static byte[] sign(String algorithm, PrivateKey privateKey, byte[] data) throws Exception {
         Signature signer = Signature.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
         signer.initSign(privateKey);
         signer.update(data);
+        return signer.sign();
+    }
+
+    private static byte[] signInTwoUpdates(String algorithm, PrivateKey privateKey, byte[] first, byte[] second)
+            throws Exception {
+        Signature signer = Signature.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(privateKey);
+        signer.update(first);
+        signer.update(second);
         return signer.sign();
     }
 
@@ -955,6 +1099,19 @@ public class RSATest {
         return verifier.verify(signature);
     }
 
+    private static boolean verifyInTwoUpdatesOrFalse(String algorithm, PublicKey publicKey, byte[] first,
+            byte[] second, byte[] signature) throws Exception {
+        try {
+            Signature verifier = Signature.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
+            verifier.initVerify(publicKey);
+            verifier.update(first);
+            verifier.update(second);
+            return verifier.verify(signature);
+        } catch (SignatureException expected) {
+            return false;
+        }
+    }
+
     private static boolean verifyOrFalse(String algorithm, PublicKey publicKey, byte[] data, byte[] signature)
             throws Exception {
         try {
@@ -962,6 +1119,22 @@ public class RSATest {
         } catch (SignatureException expected) {
             return false;
         }
+    }
+
+    private static void assertMessageBufferCleared(RSASigner signer) {
+        assertMessageBufferCleared(signer.messageBufferStatus());
+    }
+
+    private static void assertMessageBufferCleared(RSASigner.MessageBufferStatus messageBuffer) {
+        assertNotNull("Message buffer should exist", messageBuffer);
+        assertTrue("Message buffer should be cleared", messageBuffer.isCleared());
+    }
+
+    private static byte[] concat(byte[] first, byte[] second) {
+        byte[] result = new byte[first.length + second.length];
+        System.arraycopy(first, 0, result, 0, first.length);
+        System.arraycopy(second, 0, result, first.length, second.length);
+        return result;
     }
 
     private static byte[] toPem(String type, byte[] der) {

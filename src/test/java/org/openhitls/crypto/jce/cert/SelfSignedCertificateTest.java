@@ -13,6 +13,7 @@ import java.security.Security;
 import java.security.Signature;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.spec.ECGenParameterSpec;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
@@ -25,6 +26,8 @@ public class SelfSignedCertificateTest {
     private static final byte[] SHA256_WITH_RSA_ALGORITHM = derSequence(
             derOid("1.2.840.113549.1.1.11"),
             derNull());
+    private static final byte[] SHA256_WITH_ECDSA_ALGORITHM = derSequence(
+            derOid("1.2.840.10045.4.3.2"));
 
     @BeforeClass
     public static void setUp() {
@@ -61,10 +64,42 @@ public class SelfSignedCertificateTest {
         certificate.verify(certificate.getPublicKey(), HiTls4jProvider.PROVIDER_NAME);
     }
 
+    @Test
+    public void testJdkParsedEcdsaCertificateVerifiesWithHitlsProvider() throws Exception {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("EC");
+        keyPairGenerator.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair keyPair = keyPairGenerator.generateKeyPair();
+
+        byte[] tbsCertificate = createTbsCertificate(
+                keyPair.getPublic().getEncoded(),
+                SHA256_WITH_ECDSA_ALGORITHM,
+                "jdk-ecdsa-hitls-verify");
+
+        Signature signature = Signature.getInstance("SHA256withECDSA");
+        signature.initSign(keyPair.getPrivate());
+        signature.update(tbsCertificate);
+
+        byte[] certificateBytes = derSequence(
+                tbsCertificate,
+                SHA256_WITH_ECDSA_ALGORITHM,
+                derBitString(signature.sign()));
+
+        CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+        X509Certificate certificate = (X509Certificate) certificateFactory.generateCertificate(
+                new ByteArrayInputStream(certificateBytes));
+
+        assertEquals("SHA256withECDSA", certificate.getSigAlgName());
+        certificate.verify(certificate.getPublicKey(), HiTls4jProvider.PROVIDER_NAME);
+    }
+
     private static byte[] createTbsCertificate(byte[] publicKeyInfo) {
+        return createTbsCertificate(publicKeyInfo, SHA256_WITH_RSA_ALGORITHM, "hitls4j-self-signed");
+    }
+
+    private static byte[] createTbsCertificate(byte[] publicKeyInfo, byte[] signatureAlgorithm, String commonName) {
         byte[] version = derExplicit(0, derInteger(BigInteger.valueOf(2)));
         byte[] serialNumber = derInteger(BigInteger.ONE);
-        byte[] name = derName("hitls4j-self-signed");
+        byte[] name = derName(commonName);
         byte[] validity = derSequence(
                 derUtcTime(new Date(System.currentTimeMillis() - 60_000L)),
                 derUtcTime(new Date(System.currentTimeMillis() + 86_400_000L)));
@@ -72,7 +107,7 @@ public class SelfSignedCertificateTest {
         return derSequence(
                 version,
                 serialNumber,
-                SHA256_WITH_RSA_ALGORITHM,
+                signatureAlgorithm,
                 name,
                 validity,
                 name,
