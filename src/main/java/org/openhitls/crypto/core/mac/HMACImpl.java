@@ -46,8 +46,9 @@ public class HMACImpl extends NativeResource {
 
     // Convenience method to compute HMAC in one call
     public static byte[] compute(String algorithm, byte[] key, byte[] data) {
-        HMACImpl hmac = new HMACImpl(algorithm, key);
-        hmac.update(data);
-        return hmac.doFinal();
+        try (HMACImpl hmac = new HMACImpl(algorithm, key)) {
+            hmac.update(data);
+            return hmac.doFinal();
+        }
     }
 }

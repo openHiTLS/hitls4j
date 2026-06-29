@@ -161,6 +161,38 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaVeri
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    ecEncodePublicKey
+ * Signature: (Ljava/lang/String;[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecEncodePublicKey
+  (JNIEnv *, jclass, jstring, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    ecEncodePrivateKey
+ * Signature: (Ljava/lang/String;[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecEncodePrivateKey
+  (JNIEnv *, jclass, jstring, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    ecDecodePublicKey
+ * Signature: ([B)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecDecodePublicKey
+  (JNIEnv *, jclass, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    ecDecodePrivateKey
+ * Signature: ([B)[[B
+ */
+JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecDecodePrivateKey
+  (JNIEnv *, jclass, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    symmetricCipherInit
  * Signature: (Ljava/lang/String;Ljava/lang/String;[B[BI)J
  */

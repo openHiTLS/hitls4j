@@ -13,6 +13,7 @@ import java.security.spec.AlgorithmParameterSpec;
 import java.security.interfaces.RSAKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.interfaces.RSAPrivateKey;
+import java.util.Arrays;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.CipherSpi;
@@ -115,7 +116,11 @@ public class RSACipher extends CipherSpi {
                 RSAPrivateKey privKey = (RSAPrivateKey) key;
                 byte[] modulus = RSAKeyUtil.toUnsignedBytes(privKey.getModulus());
                 byte[] privateExponent = RSAKeyUtil.toUnsignedBytes(privKey.getPrivateExponent());
-                rsaImpl.setKeys(modulus, privateExponent, e);
+                try {
+                    rsaImpl.setKeys(modulus, privateExponent, e);
+                } finally {
+                    Arrays.fill(privateExponent, (byte) 0);
+                }
             }
 
             // Set padding mode

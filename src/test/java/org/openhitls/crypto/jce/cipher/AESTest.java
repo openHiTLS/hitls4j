@@ -14,6 +14,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.SecureRandom;
 import java.security.Security;
@@ -263,6 +264,26 @@ public class AESTest extends BaseTest {
 
         // Verify decrypted data matches input
         assertArrayEquals("Incremental processing failed", input, decrypted);
+    }
+
+    @Test
+    public void testAesCtrDoFinalContinuesAfterUpdate() throws Exception {
+        SecretKeySpec key = new SecretKeySpec(hex("000102030405060708090a0b0c0d0e0f"), "AES");
+        IvParameterSpec ivSpec = new IvParameterSpec(hex("a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"));
+        byte[] plaintext = new byte[32];
+
+        Cipher oneShotCipher = Cipher.getInstance("AES/CTR/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+        oneShotCipher.init(Cipher.ENCRYPT_MODE, key, ivSpec);
+        byte[] expected = oneShotCipher.doFinal(plaintext);
+
+        Cipher splitCipher = Cipher.getInstance("AES/CTR/NOPADDING", HiTls4jProvider.PROVIDER_NAME);
+        splitCipher.init(Cipher.ENCRYPT_MODE, key, ivSpec);
+        byte[] firstBlock = splitCipher.update(plaintext, 0, 16);
+        byte[] finalBlock = splitCipher.doFinal(plaintext, 16, 16);
+
+        byte[] actual = Arrays.copyOf(firstBlock, firstBlock.length + finalBlock.length);
+        System.arraycopy(finalBlock, 0, actual, firstBlock.length, finalBlock.length);
+        assertArrayEquals("AES CTR doFinal must continue the counter after update", expected, actual);
     }
 
     @Test
@@ -624,8 +645,8 @@ public class AESTest extends BaseTest {
 
         try {
             cbcCipher.init(Cipher.ENCRYPT_MODE, validKey, new IvParameterSpec(new byte[8]));
-            fail("Expected InvalidKeyException for short CBC IV");
-        } catch (InvalidKeyException expected) {
+            fail("Expected InvalidAlgorithmParameterException for short CBC IV");
+        } catch (InvalidAlgorithmParameterException expected) {
             // Expected.
         }
     }

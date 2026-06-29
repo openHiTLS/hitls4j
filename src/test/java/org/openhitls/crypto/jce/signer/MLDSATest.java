@@ -80,6 +80,87 @@ public class MLDSATest extends BaseTest {
     }
 
     @Test
+    public void testSignResetsBufferForReuse() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-DSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLDSAGenParameterSpec("ML-DSA-44"), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+
+        byte[] previous = "previous-message".getBytes(StandardCharsets.UTF_8);
+        byte[] current = "current-message".getBytes(StandardCharsets.UTF_8);
+        byte[] combined = concat(previous, current);
+
+        Signature reusedSigner = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        reusedSigner.initSign(keyPair.getPrivate());
+        reusedSigner.update(previous);
+        byte[] previousSignature = reusedSigner.sign();
+        reusedSigner.update(current);
+        byte[] currentSignature = reusedSigner.sign();
+
+        Signature verifier = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(keyPair.getPublic());
+        verifier.update(previous);
+        assertTrue(verifier.verify(previousSignature));
+
+        verifier.update(current);
+        assertTrue("Reused signer should sign only the new message", verifier.verify(currentSignature));
+
+        verifier.update(combined);
+        assertFalse("Reused signer must not sign previous || current",
+                verifier.verify(currentSignature));
+    }
+
+    @Test
+    public void testVerifyResetsBufferForReuse() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-DSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLDSAGenParameterSpec("ML-DSA-44"), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+
+        byte[] previous = "previous-message".getBytes(StandardCharsets.UTF_8);
+        byte[] current = "current-message".getBytes(StandardCharsets.UTF_8);
+        byte[] combined = concat(previous, current);
+
+        byte[] previousSignature = signMessage(keyPair.getPrivate(), previous);
+        byte[] currentSignature = signMessage(keyPair.getPrivate(), current);
+        byte[] combinedSignature = signMessage(keyPair.getPrivate(), combined);
+
+        Signature freshVerifier = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        freshVerifier.initVerify(keyPair.getPublic());
+        freshVerifier.update(current);
+        assertFalse(freshVerifier.verify(combinedSignature));
+
+        Signature reusedVerifier = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        reusedVerifier.initVerify(keyPair.getPublic());
+        reusedVerifier.update(previous);
+        assertTrue(reusedVerifier.verify(previousSignature));
+
+        reusedVerifier.update(current);
+        assertFalse("Reused verifier must not verify previous || current",
+                reusedVerifier.verify(combinedSignature));
+
+        reusedVerifier.update(current);
+        assertTrue("Reused verifier should verify only the new message",
+                reusedVerifier.verify(currentSignature));
+    }
+
+    @Test
+    public void testSM3withMLDSASignatureGeneration() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-DSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLDSAGenParameterSpec("ML-DSA-44"), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+        byte[] data = "Test data".getBytes(StandardCharsets.UTF_8);
+
+        Signature signer = Signature.getInstance("SM3withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(keyPair.getPrivate());
+        signer.update(data);
+        byte[] signature = signer.sign();
+
+        Signature verifier = Signature.getInstance("SM3withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(keyPair.getPublic());
+        verifier.update(data);
+        assertTrue(verifier.verify(signature));
+    }
+
+    @Test
     public void testMLDSASignatureVerification() throws Exception {
         for (String parameterSet : SUPPORTED_PARAMETERSETS) {
             // Initialize ML-DSA parameters
@@ -142,7 +223,7 @@ public class MLDSATest extends BaseTest {
             KeyPair keyPair = keyGen.generateKeyPair();
 
             // Sign data with deterministic
-            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(true, false, false, false, null);
+            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(true, false, false, null);
             Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
             byte[] data = "Test data".getBytes(StandardCharsets.UTF_8);
             signer.setParameter(signatureParamSpec);
@@ -171,7 +252,7 @@ public class MLDSATest extends BaseTest {
 
             // signature with preHashed data
             byte[] data = "Test data".getBytes(StandardCharsets.UTF_8);
-            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(false, true, false, false, null);
+            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(false, true, false, null);
             Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
             signer.setParameter(signatureParamSpec);
             signer.initSign(keyPair.getPrivate());
@@ -188,7 +269,7 @@ public class MLDSATest extends BaseTest {
     }
 
     @Test
-    public void testMLDSASignatureGenerationWithEncodeFlag() throws Exception {
+    public void testMLDSASignatureGenerationWithContext() throws Exception {
         for (String parameterSet : SUPPORTED_PARAMETERSETS) {
             // Initialize ML-DSA parameters
             AlgorithmParameters params = AlgorithmParameters.getInstance("ML-DSA", HiTls4jProvider.PROVIDER_NAME);
@@ -200,35 +281,20 @@ public class MLDSATest extends BaseTest {
             keyGen.initialize(mldsaParameterSpec, new SecureRandom());
             KeyPair keyPair = keyGen.generateKeyPair();
 
-            // without context
             byte[] data = "Test data".getBytes(StandardCharsets.UTF_8);
-            MLDSASignatureParameterSpec signatureParamSpec1 = new MLDSASignatureParameterSpec(false, false, true, false, null);
-            Signature signer1 = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
-            signer1.setParameter(signatureParamSpec1);
-            signer1.initSign(keyPair.getPrivate());
-            signer1.update(data);
-            byte[] signature1 = signer1.sign();
-
-            Signature verifier1 = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
-            verifier1.initVerify(keyPair.getPublic());
-            verifier1.setParameter(signatureParamSpec1);
-            verifier1.update(data);
-            assertTrue(verifier1.verify(signature1));
-
-            // with context
             byte[] context = "context".getBytes(StandardCharsets.UTF_8);
-            MLDSASignatureParameterSpec signatureParamSpec2 = new MLDSASignatureParameterSpec(false, false, true, false, context);
-            Signature signer2 = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
-            signer2.setParameter(signatureParamSpec2);
-            signer2.initSign(keyPair.getPrivate());
-            signer2.update(data);
-            byte[] signature2 = signer2.sign();
+            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(false, false, false, context);
+            Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+            signer.setParameter(signatureParamSpec);
+            signer.initSign(keyPair.getPrivate());
+            signer.update(data);
+            byte[] signature = signer.sign();
 
-            Signature verifier2 = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
-            verifier2.initVerify(keyPair.getPublic());
-            verifier2.setParameter(signatureParamSpec2);
-            verifier2.update(data);
-            assertTrue(verifier2.verify(signature2));
+            Signature verifier = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+            verifier.initVerify(keyPair.getPublic());
+            verifier.setParameter(signatureParamSpec);
+            verifier.update(data);
+            assertTrue(verifier.verify(signature));
         }
     }
 
@@ -246,8 +312,10 @@ public class MLDSATest extends BaseTest {
             KeyPair keyPair = keyGen.generateKeyPair();
 
             // Sign with external mu
-            byte[] data = hexStringToByteArray("D9DFFBBD4191700AD4B00A0BFDC769A70500540A8157AB874F6D114CC35B8F90F86F41F82074554850DD959F5F71509C0748AC4076671F1BD71C3297D9C1E769");
-            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(false, false, false, true, null);
+            byte[] data = hexStringToByteArray(
+                    "D9DFFBBD4191700AD4B00A0BFDC769A70500540A8157AB874F6D114CC35B8F90"
+                            + "F86F41F82074554850DD959F5F71509C0748AC4076671F1BD71C3297D9C1E769");
+            MLDSASignatureParameterSpec signatureParamSpec = new MLDSASignatureParameterSpec(false, false, true, null);
             Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
             signer.setParameter(signatureParamSpec);
             signer.initSign(keyPair.getPrivate());
@@ -279,6 +347,20 @@ public class MLDSATest extends BaseTest {
                                 + Character.digit(hexString.charAt(i+1), 16));
         }
         return data;
+    }
+
+    private static byte[] concat(byte[] first, byte[] second) {
+        byte[] combined = new byte[first.length + second.length];
+        System.arraycopy(first, 0, combined, 0, first.length);
+        System.arraycopy(second, 0, combined, first.length, second.length);
+        return combined;
+    }
+
+    private static byte[] signMessage(PrivateKey privateKey, byte[] message) throws Exception {
+        Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(privateKey);
+        signer.update(message);
+        return signer.sign();
     }
 
     @Test
@@ -419,5 +501,51 @@ public class MLDSATest extends BaseTest {
             fail("Expected InvalidAlgorithmParameterException for non-ML-DSA params");
         } catch (InvalidAlgorithmParameterException expected) {
         }
+    }
+
+    @Test
+    public void testMLDSAFailedInitPreservesPreviousState() throws Exception {
+        KeyPair mldsaKeyPair = generateMLDSAKeyPair();
+        KeyPair rsaKeyPair = generateRsaKeyPair();
+        byte[] data = "MLDSA state after failed init".getBytes(StandardCharsets.UTF_8);
+
+        Signature signer = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(mldsaKeyPair.getPrivate());
+        signer.update(data);
+        try {
+            signer.initSign(rsaKeyPair.getPrivate());
+            fail("Expected InvalidKeyException for RSA private key");
+        } catch (InvalidKeyException expected) {
+        }
+        byte[] preservedSignature = signer.sign();
+        Signature freshVerifier = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        freshVerifier.initVerify(mldsaKeyPair.getPublic());
+        freshVerifier.update(data);
+        assertTrue("Failed initSign must leave the previous signing state usable",
+                freshVerifier.verify(preservedSignature));
+
+        byte[] signature = signMessage(mldsaKeyPair.getPrivate(), data);
+        Signature verifier = Signature.getInstance("SHA256withMLDSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(mldsaKeyPair.getPublic());
+        verifier.update(data);
+        try {
+            verifier.initVerify(rsaKeyPair.getPublic());
+            fail("Expected InvalidKeyException for RSA public key");
+        } catch (InvalidKeyException expected) {
+        }
+        assertTrue("Failed initVerify must leave the previous verification state usable",
+                verifier.verify(signature));
+    }
+
+    private static KeyPair generateMLDSAKeyPair() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ML-DSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new MLDSAGenParameterSpec("ML-DSA-44"), new SecureRandom());
+        return keyGen.generateKeyPair();
+    }
+
+    private static KeyPair generateRsaKeyPair() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(2048);
+        return keyGen.generateKeyPair();
     }
 }

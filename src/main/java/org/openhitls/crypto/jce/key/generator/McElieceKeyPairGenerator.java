@@ -7,6 +7,7 @@ import java.security.ProviderException;
 import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.McElieceImpl;
 import org.openhitls.crypto.jce.key.McEliecePrivateKeyImpl;
 import org.openhitls.crypto.jce.key.McEliecePublicKeyImpl;
@@ -56,14 +57,20 @@ public class McElieceKeyPairGenerator extends KeyPairGeneratorSpi {
         }
 
         try {
-            McElieceImpl mcEliece = new McElieceImpl(parameterSet);
-            byte[] publicKey = mcEliece.getEK();
-            byte[] privateKey = mcEliece.getDk();
+            try (McElieceImpl mcEliece = new McElieceImpl(parameterSet)) {
+                byte[] publicKey = mcEliece.getEK();
+                byte[] privateKey = null;
+                try {
+                    privateKey = mcEliece.getDk();
 
-            return new KeyPair(
-                    new McEliecePublicKeyImpl(params, publicKey),
-                    new McEliecePrivateKeyImpl(params, privateKey)
-            );
+                    return new KeyPair(
+                            new McEliecePublicKeyImpl(params, publicKey),
+                            new McEliecePrivateKeyImpl(params, privateKey)
+                    );
+                } finally {
+                    SensitiveDataUtil.clear(privateKey);
+                }
+            }
         } catch (Exception e) {
             throw new ProviderException("Failed to generate Classic McEliece key pair", e);
         }

@@ -7,8 +7,6 @@ import java.security.Provider;
 import org.openhitls.crypto.jce.key.generator.ECKeyPairGenerator;
 import org.openhitls.crypto.jce.key.factory.ECKeyFactory;
 import org.openhitls.crypto.jce.cipher.SM2Cipher;
-import org.openhitls.crypto.jce.param.ECParameters;
-import org.openhitls.crypto.jce.signer.ECDSASigner;
 import org.openhitls.crypto.jce.key.generator.SymmetricCipherKeyGenerator;
 
 public final class HiTls4jProvider extends Provider {
@@ -66,11 +64,11 @@ public final class HiTls4jProvider extends Provider {
         // DSA functionality
         put("KeyPairGenerator.DSA", "org.openhitls.crypto.jce.key.generator.DSAKeyPairGenerator");
         put("Signature.DSA", "org.openhitls.crypto.jce.signer.DSASigner");
-        put("Signature.SHA1withDSA", "org.openhitls.crypto.jce.signer.DSASigner");
-        put("Signature.SHA224withDSA", "org.openhitls.crypto.jce.signer.DSASigner");
-        put("Signature.SHA256withDSA", "org.openhitls.crypto.jce.signer.DSASigner");
-        put("Signature.SHA384withDSA", "org.openhitls.crypto.jce.signer.DSASigner");
-        put("Signature.SHA512withDSA", "org.openhitls.crypto.jce.signer.DSASigner");
+        put("Signature.SHA1withDSA", "org.openhitls.crypto.jce.signer.DSASigner$SHA1withDSA");
+        put("Signature.SHA224withDSA", "org.openhitls.crypto.jce.signer.DSASigner$SHA224withDSA");
+        put("Signature.SHA256withDSA", "org.openhitls.crypto.jce.signer.DSASigner$SHA256withDSA");
+        put("Signature.SHA384withDSA", "org.openhitls.crypto.jce.signer.DSASigner$SHA384withDSA");
+        put("Signature.SHA512withDSA", "org.openhitls.crypto.jce.signer.DSASigner$SHA512withDSA");
         put("AlgorithmParameters.DSA", "org.openhitls.crypto.jce.param.DSAParameters");
 
         // RSA functionality
@@ -104,10 +102,11 @@ public final class HiTls4jProvider extends Provider {
         put("Cipher.SM2", SM2Cipher.class.getName());
         put("KeyPairGenerator.EC", ECKeyPairGenerator.class.getName());
         put("KeyFactory.EC", ECKeyFactory.class.getName());
-        put("Signature.EC", ECDSASigner.class.getName());
-        put("AlgorithmParameters.EC", ECParameters.class.getName());
-        put("AlgorithmParameterGenerator.EC", "sun.security.ec.ECParameterGenerator");
-        put("KeyAgreement.EC", "sun.security.ec.ECDHKeyAgreement");
+        put("AlgorithmParameters.EC", "org.openhitls.crypto.jce.param.ECParameters");
+        put("KeyPairGenerator.SM2", ECKeyPairGenerator.SM2.class.getName());
+        put("KeyFactory.SM2", ECKeyFactory.SM2.class.getName());
+        put("KeyPairGenerator.ECDSA", ECKeyPairGenerator.ECDSA.class.getName());
+        put("KeyFactory.ECDSA", ECKeyFactory.ECDSA.class.getName());
 
         // Register specific transformations
         // ECB mode

@@ -11,6 +11,7 @@ import java.security.AlgorithmParameters;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.InvalidKeyException;
 import java.security.PrivateKey;
 import java.security.Security;
 import java.security.Signature;
@@ -300,6 +301,78 @@ public class StatefulHBSTest {
     }
 
     @Test
+    public void testSignatureObjectsResetBufferedInputForReuse() throws Exception {
+        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
+        KeyPair keyPair = generate("LMS", params);
+        enableUnsafeInMemorySigning(keyPair.getPrivate());
+        byte[] previous = "previous-message".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] current = "current-message".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] combined = concat(previous, current);
+
+        Signature reusedSigner = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        reusedSigner.initSign(keyPair.getPrivate());
+        reusedSigner.update(previous);
+        byte[] previousSignature = reusedSigner.sign();
+        reusedSigner.update(current);
+        byte[] currentSignature = reusedSigner.sign();
+
+        assertTrue(verify("LMS", keyPair.getPublic(), previous, previousSignature));
+        assertTrue("Reused signer should sign only the new message",
+                verify("LMS", keyPair.getPublic(), current, currentSignature));
+        assertFalse("Reused signer must not sign previous || current",
+                verify("LMS", keyPair.getPublic(), combined, currentSignature));
+
+        byte[] combinedSignature = sign("LMS", keyPair.getPrivate(), combined);
+
+        Signature reusedVerifier = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        reusedVerifier.initVerify(keyPair.getPublic());
+        reusedVerifier.update(previous);
+        assertTrue(reusedVerifier.verify(previousSignature));
+
+        reusedVerifier.update(current);
+        assertFalse("Reused verifier must not verify previous || current",
+                reusedVerifier.verify(combinedSignature));
+
+        reusedVerifier.update(current);
+        assertTrue("Reused verifier should verify only the new message",
+                reusedVerifier.verify(currentSignature));
+    }
+
+    @Test
+    public void testFailedInitPreservesPreviousState() throws Exception {
+        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
+        KeyPair keyPair = generate("LMS", params);
+        enableUnsafeInMemorySigning(keyPair.getPrivate());
+        KeyPair rsaKeyPair = generateRsaKeyPair();
+        byte[] message = "stateful-hbs-after-failed-init".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        Signature signer = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(keyPair.getPrivate());
+        signer.update(message);
+        try {
+            signer.initSign(rsaKeyPair.getPrivate());
+            fail("Expected InvalidKeyException for RSA private key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+        byte[] preservedSignature = signer.sign();
+        assertVerify("LMS", keyPair, message, preservedSignature);
+
+        byte[] signature = sign("LMS", keyPair.getPrivate(), message);
+        Signature verifier = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(keyPair.getPublic());
+        verifier.update(message);
+        try {
+            verifier.initVerify(rsaKeyPair.getPublic());
+            fail("Expected InvalidKeyException for RSA public key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+        assertTrue("Failed initVerify must leave the previous verification state usable",
+                verifier.verify(signature));
+    }
+
+    @Test
     public void testKeyFactoryRejectsMismatchedStatefulKeySpecType() throws Exception {
         LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
         KeyPair keyPair = generate("LMS", params);
@@ -365,6 +438,12 @@ public class StatefulHBSTest {
         return generator.generateKeyPair();
     }
 
+    private static KeyPair generateRsaKeyPair() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
+        generator.initialize(2048);
+        return generator.generateKeyPair();
+    }
+
     private static void assertSignVerifyAndStateUpdate(String algorithm, KeyPair keyPair) throws Exception {
         enableUnsafeInMemorySigning(keyPair.getPrivate());
         byte[] before = keyPair.getPrivate().getEncoded();
@@ -419,6 +498,13 @@ public class StatefulHBSTest {
         byte[] updated = data.clone();
         updated[0] ^= 1;
         return updated;
+    }
+
+    private static byte[] concat(byte[] first, byte[] second) {
+        byte[] combined = new byte[first.length + second.length];
+        System.arraycopy(first, 0, combined, 0, first.length);
+        System.arraycopy(second, 0, combined, first.length, second.length);
+        return combined;
     }
 
     private static String repeat(char value, int count) {

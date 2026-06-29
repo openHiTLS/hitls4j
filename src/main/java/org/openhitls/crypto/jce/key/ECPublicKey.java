@@ -4,61 +4,48 @@ import java.security.spec.*;
 import java.util.Arrays;
 import java.math.BigInteger;
 
-import org.openhitls.crypto.jce.spec.ECNamedCurveSpec;
+import org.openhitls.crypto.jce.util.ECKeyEncoding;
 
 public class ECPublicKey implements java.security.interfaces.ECPublicKey {
     private static final long serialVersionUID = 1L;
+    private static final String DEFAULT_ALGORITHM = "EC";
     private final byte[] keyBytes;
     private final ECParameterSpec params;
+    private final String algorithm;
     private ECPoint w;  // Cache the ECPoint to avoid repeated computation
 
     public ECPublicKey(byte[] keyBytes) {
-        this.keyBytes = keyBytes.clone();
-        this.params = null;
-        this.w = null;
+        this(keyBytes, null, DEFAULT_ALGORITHM);
+    }
+
+    public ECPublicKey(byte[] keyBytes, String algorithm) {
+        this(keyBytes, null, algorithm);
     }
 
     public ECPublicKey(byte[] keyBytes, ECParameterSpec params) {
+        this(keyBytes, params, DEFAULT_ALGORITHM);
+    }
+
+    public ECPublicKey(byte[] keyBytes, ECParameterSpec params, String algorithm) {
         this.keyBytes = keyBytes.clone();
         this.params = params;
+        this.algorithm = normalizeAlgorithm(algorithm);
         this.w = null;
     }
 
     public ECPublicKey(ECPoint w, ECParameterSpec params) {
+        this(w, params, DEFAULT_ALGORITHM);
+    }
+
+    public ECPublicKey(ECPoint w, ECParameterSpec params, String algorithm) {
         this.w = w;
-        // Get field size in bytes
-        int fieldSize = (params.getCurve().getField().getFieldSize() + 7) / 8;
-        byte[] encoded = new byte[1 + 2 * fieldSize]; // Format: 0x04 || X || Y
-        encoded[0] = 0x04; // uncompressed point
-        
-        // Convert X coordinate to fieldSize bytes, big-endian
-        byte[] x = w.getAffineX().toByteArray();
-        if (x.length > fieldSize) {
-            // Remove leading zeros if present
-            x = Arrays.copyOfRange(x, x.length - fieldSize, x.length);
-        } else if (x.length < fieldSize) {
-            // Pad with zeros if needed
-            byte[] padded = new byte[fieldSize];
-            System.arraycopy(x, 0, padded, fieldSize - x.length, x.length);
-            x = padded;
+        try {
+            this.keyBytes = ECKeyEncoding.encodePublicPoint(w, params);
+        } catch (InvalidKeySpecException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
         }
-        System.arraycopy(x, 0, encoded, 1, fieldSize);
-        
-        // Convert Y coordinate to fieldSize bytes, big-endian
-        byte[] y = w.getAffineY().toByteArray();
-        if (y.length > fieldSize) {
-            // Remove leading zeros if present
-            y = Arrays.copyOfRange(y, y.length - fieldSize, y.length);
-        } else if (y.length < fieldSize) {
-            // Pad with zeros if needed
-            byte[] padded = new byte[fieldSize];
-            System.arraycopy(y, 0, padded, fieldSize - y.length, y.length);
-            y = padded;
-        }
-        System.arraycopy(y, 0, encoded, 1 + fieldSize, fieldSize);
-        
-        this.keyBytes = encoded;
         this.params = params;
+        this.algorithm = normalizeAlgorithm(algorithm);
     }
 
     public ECParameterSpec getParams() {
@@ -67,17 +54,24 @@ public class ECPublicKey implements java.security.interfaces.ECPublicKey {
 
     @Override
     public String getAlgorithm() {
-        return "EC";
+        return algorithm;
     }
 
     @Override
     public String getFormat() {
-        return "RAW";
+        return params != null ? "X.509" : null;
     }
 
     @Override
     public byte[] getEncoded() {
-        return keyBytes.clone();
+        if (params == null) {
+            return null;
+        }
+        try {
+            return ECKeyCodec.encodePublic(getW(), params);
+        } catch (InvalidKeySpecException | RuntimeException e) {
+            throw new IllegalStateException("Failed to encode EC public key", e);
+        }
     }
 
     @Override
@@ -108,5 +102,9 @@ public class ECPublicKey implements java.security.interfaces.ECPublicKey {
             w = new ECPoint(new BigInteger(1, x), new BigInteger(1, y));
         }
         return w;
+    }
+
+    private static String normalizeAlgorithm(String algorithm) {
+        return algorithm == null ? DEFAULT_ALGORITHM : algorithm;
     }
 }

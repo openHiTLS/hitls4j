@@ -20,6 +20,9 @@ public class MLDSAKeyFactory extends KeyFactorySpi {
 
     @Override
     protected PublicKey engineGeneratePublic(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof MLDSAPublicKeySpec) {
             MLDSAPublicKeySpec mldsaSpec = (MLDSAPublicKeySpec) keySpec;
             return new MLDSAPublicKeyImpl(mldsaSpec.getParams(), mldsaSpec.getEncoded());
@@ -35,6 +38,9 @@ public class MLDSAKeyFactory extends KeyFactorySpi {
 
     @Override
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof MLDSAPrivateKeySpec) {
             MLDSAPrivateKeySpec mldsaSpec = (MLDSAPrivateKeySpec) keySpec;
             return new MLDSAPrivateKeyImpl(mldsaSpec.getParams(), mldsaSpec.getEncoded());
@@ -53,6 +59,9 @@ public class MLDSAKeyFactory extends KeyFactorySpi {
             throws InvalidKeySpecException {
         if (key == null) {
             throw new InvalidKeySpecException("Key cannot be null");
+        }
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
         }
 
         if (key instanceof MLDSAPublicKeyImpl) {

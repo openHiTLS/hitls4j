@@ -1,6 +1,8 @@
 package org.openhitls.crypto.jce.mac;
 
 import org.openhitls.crypto.core.mac.HMACImpl;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import javax.crypto.MacSpi;
 import javax.crypto.spec.SecretKeySpec;
 import java.security.InvalidAlgorithmParameterException;
@@ -11,7 +13,6 @@ import java.security.spec.AlgorithmParameterSpec;
 public class HMAC extends MacSpi {
     private HMACImpl hmac;
     private final int macLength;
-    private byte[] keyBytes; // Store key for reinit
     private final String algorithm;
 
     protected HMAC(String algorithm, int macLength) {
@@ -38,13 +39,23 @@ public class HMAC extends MacSpi {
             throw new InvalidKeyException("Key algorithm must be " + algorithm);
         }
 
-        keyBytes = keySpec.getEncoded();
-        if (keyBytes == null || keyBytes.length == 0) {
+        byte[] newKeyBytes = keySpec.getEncoded();
+        if (newKeyBytes == null || newKeyBytes.length == 0) {
             throw new InvalidKeyException("Key bytes cannot be null or empty");
         }
 
-        // Initialize HMAC with the corresponding algorithm
-        hmac = new HMACImpl(algorithm, keyBytes);
+        HMACImpl newHmac = null;
+        try {
+            newHmac = new HMACImpl(algorithm, newKeyBytes);
+            hmac = NativeResourceUtil.replaceAfterClosing(hmac, newHmac,
+                    failure -> new InvalidKeyException("Failed to close previous HMAC context", failure));
+            newHmac = null;
+        } catch (InvalidKeyException | RuntimeException e) {
+            NativeResourceUtil.closeSuppressing(newHmac, e);
+            throw e;
+        } finally {
+            SensitiveDataUtil.clear(newKeyBytes);
+        }
     }
 
     @Override

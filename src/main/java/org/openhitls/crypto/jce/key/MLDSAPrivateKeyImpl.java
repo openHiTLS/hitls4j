@@ -10,14 +10,14 @@ public class MLDSAPrivateKeyImpl implements MLDSAPrivateKey {
     private final byte[] privateKeyData;
 
     public MLDSAPrivateKeyImpl(byte[] encoded) {
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.params = null;
         this.privateKeyData = null;
     }
 
     public MLDSAPrivateKeyImpl(MLDSAParameterSpec params, byte[] encoded) {
         this.params = params;
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.privateKeyData = null;
     }
 

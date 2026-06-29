@@ -6,6 +6,8 @@ import java.security.spec.ECFieldFp;
 import java.security.spec.ECPoint;
 import java.security.spec.EllipticCurve;
 
+import org.openhitls.crypto.jce.util.ECCurveRegistry;
+
 /**
  * Specification signifying that the curve parameters can also be referred to by name.
  */
@@ -59,18 +61,7 @@ public class ECNamedCurveSpec extends java.security.spec.ECParameterSpec {
     }
 
     public static ECNamedCurveSpec getNamedCurve(String name) {
-        switch (name.toLowerCase()) {
-            case "sm2p256v1":
-                return getSM2Curve();
-            case "secp256r1":
-                return getP256Curve();
-            case "secp384r1":
-                return getP384Curve();
-            case "secp521r1":
-                return getP521Curve();
-            default:
-                throw new IllegalArgumentException("Unsupported curve: " + name);
-        }
+        return ECCurveRegistry.getNamedCurve(name);
     }
 
     public static ECNamedCurveSpec getP256Curve() {

@@ -1,5 +1,6 @@
 package org.openhitls.crypto.jce.key.generator;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.MLDSAImpl;
 import org.openhitls.crypto.jce.key.MLDSAPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.MLDSAPublicKeyImpl;
@@ -78,14 +79,20 @@ public class MLDSAKeyPairGenerator extends KeyPairGeneratorSpi {
             throw new IllegalStateException("ML-DSA parameters not initialized");
         }
 
-        MLDSAImpl mldsaImpl = new MLDSAImpl(paramSetName);
-        byte[] publicKeyBytes = mldsaImpl.getPublicKey();
-        byte[] privateKeyBytes = mldsaImpl.getPrivateKey();
+        try (MLDSAImpl mldsaImpl = new MLDSAImpl(paramSetName)) {
+            byte[] publicKeyBytes = mldsaImpl.getPublicKey();
+            byte[] privateKeyBytes = null;
+            try {
+                privateKeyBytes = mldsaImpl.getPrivateKey();
 
-        // Wrap as JCE key objects
-        return new KeyPair(
-                new MLDSAPublicKeyImpl(params, publicKeyBytes),
-                new MLDSAPrivateKeyImpl(params, privateKeyBytes)
-        );
+                // Wrap as JCE key objects
+                return new KeyPair(
+                        new MLDSAPublicKeyImpl(params, publicKeyBytes),
+                        new MLDSAPrivateKeyImpl(params, privateKeyBytes)
+                );
+            } finally {
+                SensitiveDataUtil.clear(privateKeyBytes);
+            }
+        }
     }
 }

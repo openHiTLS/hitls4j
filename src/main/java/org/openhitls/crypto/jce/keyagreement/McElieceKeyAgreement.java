@@ -1,6 +1,7 @@
 package org.openhitls.crypto.jce.keyagreement;
 
 import org.openhitls.crypto.core.pqc.McElieceImpl;
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.jce.key.McElieceCiphertextKey;
 import org.openhitls.crypto.jce.key.McEliecePrivateKeyImpl;
 import org.openhitls.crypto.jce.key.McEliecePublicKeyImpl;
@@ -10,6 +11,7 @@ import javax.crypto.KeyAgreementSpi;
 import javax.crypto.SecretKey;
 import java.security.*;
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Arrays;
 
 public class McElieceKeyAgreement extends KeyAgreementSpi {
     private McElieceImpl mcElieceImpl;
@@ -37,42 +39,57 @@ public class McElieceKeyAgreement extends KeyAgreementSpi {
     }
 
     private void init(Key key, McElieceParameterSpec params, SecureRandom random) throws InvalidKeyException {
+        clearState();
+
+        McEliecePrivateKeyImpl newPrivateKey = null;
+        McEliecePublicKeyImpl newPublicKey = null;
         if (key instanceof McEliecePrivateKeyImpl) {
-            this.mcEliecePrivateKey = (McEliecePrivateKeyImpl) key;
-            this.mcEliecePublicKey = null;
+            newPrivateKey = (McEliecePrivateKeyImpl) key;
         } else if (key instanceof McEliecePublicKeyImpl) {
-            this.mcEliecePublicKey = (McEliecePublicKeyImpl) key;
-            this.mcEliecePrivateKey = null;
+            newPublicKey = (McEliecePublicKeyImpl) key;
         } else {
             throw new InvalidKeyException("Key must be an instance of McEliecePrivateKeyImpl or McEliecePublicKeyImpl");
         }
 
+        String newParameterSet;
         if (params != null) {
-            parameterSet = params.getName();
-            if (!parameterSet.matches(PARAM_REGEX)) {
-                throw new InvalidKeyException("Unsupported Classic McEliece parameter set: " + parameterSet);
+            newParameterSet = params.getName();
+            if (!newParameterSet.matches(PARAM_REGEX)) {
+                throw new InvalidKeyException("Unsupported Classic McEliece parameter set: " + newParameterSet);
             }
-        } else if (mcEliecePrivateKey != null) {
-            McElieceParameterSpec keyParams = mcEliecePrivateKey.getParams();
+        } else if (newPrivateKey != null) {
+            McElieceParameterSpec keyParams = newPrivateKey.getParams();
             if (keyParams == null) {
                 throw new InvalidKeyException("Classic McEliece key is missing parameter metadata");
             }
-            parameterSet = keyParams.getName();
-        } else if (mcEliecePublicKey != null) {
-            McElieceParameterSpec keyParams = mcEliecePublicKey.getParams();
+            newParameterSet = keyParams.getName();
+        } else if (newPublicKey != null) {
+            McElieceParameterSpec keyParams = newPublicKey.getParams();
             if (keyParams == null) {
                 throw new InvalidKeyException("Classic McEliece key is missing parameter metadata");
             }
-            parameterSet = keyParams.getName();
+            newParameterSet = keyParams.getName();
         } else {
             throw new InvalidKeyException("Classic McEliece parameter set not specified");
         }
 
-        if (mcEliecePrivateKey != null) {
-            mcElieceImpl = new McElieceImpl(parameterSet, null, mcEliecePrivateKey.getEncoded());
+        byte[] privateKeyEncoded = null;
+        McElieceImpl newImpl;
+        if (newPrivateKey != null) {
+            try {
+                privateKeyEncoded = newPrivateKey.getEncoded();
+                newImpl = new McElieceImpl(newParameterSet, null, privateKeyEncoded);
+            } finally {
+                SensitiveDataUtil.clear(privateKeyEncoded);
+            }
         } else {
-            mcElieceImpl = new McElieceImpl(parameterSet, mcEliecePublicKey.getEncoded(), null);
+            newImpl = new McElieceImpl(newParameterSet, newPublicKey.getEncoded(), null);
         }
+
+        mcEliecePrivateKey = newPrivateKey;
+        mcEliecePublicKey = newPublicKey;
+        parameterSet = newParameterSet;
+        mcElieceImpl = newImpl;
     }
 
     @Override
@@ -85,6 +102,7 @@ public class McElieceKeyAgreement extends KeyAgreementSpi {
             // This is the decapsulation case
             if (key instanceof McElieceCiphertextKey) {
                 this.ciphertext = ((McElieceCiphertextKey) key).getEncoded();
+                clearPendingSharedKey();
             } else {
                 throw new InvalidKeyException("Expected McElieceCiphertextKey for decapsulation");
             }
@@ -118,6 +136,30 @@ public class McElieceKeyAgreement extends KeyAgreementSpi {
         }
 
         return mcElieceImpl.decapsulate(ciphertext);
+    }
+
+    private void clearPendingState() {
+        clearPendingSharedKey();
+        ciphertext = null;
+    }
+
+    private void clearState() {
+        clearPendingState();
+        McElieceImpl oldImpl = mcElieceImpl;
+        mcElieceImpl = null;
+        mcEliecePrivateKey = null;
+        mcEliecePublicKey = null;
+        parameterSet = null;
+        if (oldImpl != null) {
+            oldImpl.close();
+        }
+    }
+
+    private void clearPendingSharedKey() {
+        if (sharedKey != null) {
+            Arrays.fill(sharedKey, (byte) 0);
+            sharedKey = null;
+        }
     }
 
     @Override

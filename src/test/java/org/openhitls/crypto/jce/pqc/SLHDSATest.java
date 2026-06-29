@@ -23,6 +23,7 @@ import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.security.spec.ECGenParameterSpec;
+import java.nio.charset.StandardCharsets;
 
 import org.junit.Test;
 
@@ -84,6 +85,54 @@ public class SLHDSATest extends BaseTest {
             result = verifier.verify(signature);
             assertFalse(result);
         }
+    }
+
+    @Test
+    public void testSignResetsBufferForReuse() throws Exception {
+        KeyPair keyPair = generateKeyPair("SLH-DSA-SHA2-128s");
+        byte[] previous = "previous-message".getBytes(StandardCharsets.UTF_8);
+        byte[] current = "current-message".getBytes(StandardCharsets.UTF_8);
+        byte[] combined = concat(previous, current);
+
+        Signature reusedSigner = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        reusedSigner.initSign(keyPair.getPrivate());
+        reusedSigner.update(previous);
+        byte[] previousSignature = reusedSigner.sign();
+        reusedSigner.update(current);
+        byte[] currentSignature = reusedSigner.sign();
+
+        assertTrue(verifyMessage(keyPair.getPublic(), previous, previousSignature));
+        assertTrue("Reused signer should sign only the new message",
+                verifyMessage(keyPair.getPublic(), current, currentSignature));
+        assertFalse("Reused signer must not sign previous || current",
+                verifyMessage(keyPair.getPublic(), combined, currentSignature));
+    }
+
+    @Test
+    public void testVerifyResetsBufferForReuse() throws Exception {
+        KeyPair keyPair = generateKeyPair("SLH-DSA-SHA2-128s");
+        byte[] previous = "previous-message".getBytes(StandardCharsets.UTF_8);
+        byte[] current = "current-message".getBytes(StandardCharsets.UTF_8);
+        byte[] combined = concat(previous, current);
+
+        byte[] previousSignature = signMessage(keyPair.getPrivate(), previous);
+        byte[] currentSignature = signMessage(keyPair.getPrivate(), current);
+        byte[] combinedSignature = signMessage(keyPair.getPrivate(), combined);
+
+        assertFalse(verifyMessage(keyPair.getPublic(), current, combinedSignature));
+
+        Signature reusedVerifier = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        reusedVerifier.initVerify(keyPair.getPublic());
+        reusedVerifier.update(previous);
+        assertTrue(reusedVerifier.verify(previousSignature));
+
+        reusedVerifier.update(current);
+        assertFalse("Reused verifier must not verify previous || current",
+                reusedVerifier.verify(combinedSignature));
+
+        reusedVerifier.update(current);
+        assertTrue("Reused verifier should verify only the new message",
+                reusedVerifier.verify(currentSignature));
     }
 
     @Test
@@ -281,6 +330,39 @@ public class SLHDSATest extends BaseTest {
         }
     }
 
+    @Test
+    public void testSLHDSAFailedInitPreservesPreviousState() throws Exception {
+        KeyPair slhdsaKeyPair = generateKeyPair("SLH-DSA-SHA2-128s");
+        KeyPair rsaKeyPair = generateRsaKeyPair();
+        byte[] data = "SLHDSA state after failed init".getBytes(StandardCharsets.UTF_8);
+
+        Signature signer = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(slhdsaKeyPair.getPrivate());
+        signer.update(data);
+        try {
+            signer.initSign(rsaKeyPair.getPrivate());
+            fail("Expected InvalidKeyException for RSA private key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+        byte[] preservedSignature = signer.sign();
+        assertTrue("Failed initSign must leave the previous signing state usable",
+                verifyMessage(slhdsaKeyPair.getPublic(), data, preservedSignature));
+
+        byte[] signature = signMessage(slhdsaKeyPair.getPrivate(), data);
+        Signature verifier = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(slhdsaKeyPair.getPublic());
+        verifier.update(data);
+        try {
+            verifier.initVerify(rsaKeyPair.getPublic());
+            fail("Expected InvalidKeyException for RSA public key");
+        } catch (InvalidKeyException expected) {
+            // Expected.
+        }
+        assertTrue("Failed initVerify must leave the previous verification state usable",
+                verifier.verify(signature));
+    }
+
     /**
      * Converts a hex string to a byte array.
      * @param hexString the hex string to convert
@@ -298,6 +380,39 @@ public class SLHDSATest extends BaseTest {
                                 + Character.digit(hexString.charAt(i+1), 16));
         }
         return data;
+    }
+
+    private static KeyPair generateKeyPair(String parameterSet) throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("SLH-DSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new SLHDSAParameterSpec(parameterSet));
+        return keyGen.generateKeyPair();
+    }
+
+    private static KeyPair generateRsaKeyPair() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(2048);
+        return keyGen.generateKeyPair();
+    }
+
+    private static byte[] signMessage(PrivateKey privateKey, byte[] message) throws Exception {
+        Signature signer = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        signer.initSign(privateKey);
+        signer.update(message);
+        return signer.sign();
+    }
+
+    private static boolean verifyMessage(PublicKey publicKey, byte[] message, byte[] signature) throws Exception {
+        Signature verifier = Signature.getInstance("SHA256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
+        verifier.initVerify(publicKey);
+        verifier.update(message);
+        return verifier.verify(signature);
+    }
+
+    private static byte[] concat(byte[] first, byte[] second) {
+        byte[] combined = new byte[first.length + second.length];
+        System.arraycopy(first, 0, combined, 0, first.length);
+        System.arraycopy(second, 0, combined, first.length, second.length);
+        return combined;
     }
 
     @Test

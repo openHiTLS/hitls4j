@@ -20,6 +20,9 @@ public class FrodoKEMKeyFactory extends KeyFactorySpi {
 
     @Override
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof FrodoKEMPrivateKeySpec) {
             FrodoKEMPrivateKeySpec spec = (FrodoKEMPrivateKeySpec) keySpec;
             return new FrodoKEMPrivateKeyImpl(spec.getParams(), spec.getEncoded());
@@ -32,6 +35,9 @@ public class FrodoKEMKeyFactory extends KeyFactorySpi {
 
     @Override
     protected PublicKey engineGeneratePublic(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof FrodoKEMPublicKeySpec) {
             FrodoKEMPublicKeySpec spec = (FrodoKEMPublicKeySpec) keySpec;
             return new FrodoKEMPublicKeyImpl(spec.getParams(), spec.getEncoded());
@@ -46,6 +52,9 @@ public class FrodoKEMKeyFactory extends KeyFactorySpi {
     protected <T extends KeySpec> T engineGetKeySpec(Key key, Class<T> keySpec) throws InvalidKeySpecException {
         if (key == null) {
             throw new InvalidKeySpecException("Key cannot be null");
+        }
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
         }
 
         if (key instanceof FrodoKEMPublicKeyImpl) {

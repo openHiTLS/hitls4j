@@ -25,6 +25,10 @@ public class CryptoNative {
     public static native byte[] ecdsaDecrypt(long nativeRef, byte[] encryptedData);
     public static native byte[] ecdsaSign(long nativeRef, byte[] data, int hashAlg);
     public static native boolean ecdsaVerify(long nativeRef, byte[] data, byte[] signature, int hashAlg);
+    public static native byte[] ecEncodePublicKey(String curveName, byte[] publicKey);
+    public static native byte[] ecEncodePrivateKey(String curveName, byte[] privateKey);
+    public static native byte[][] ecDecodePublicKey(byte[] x509EncodedKey);
+    public static native byte[][] ecDecodePrivateKey(byte[] pkcs8EncodedKey);
 
     // SM4 native methods
     public static native long symmetricCipherInit(String algorithm, String cipherMode, byte[] key, byte[] iv, int mode);

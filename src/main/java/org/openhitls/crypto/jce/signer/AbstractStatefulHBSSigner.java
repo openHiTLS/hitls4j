@@ -25,7 +25,7 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
     private AbstractStatefulHBSPublicKey publicKey;
     private byte[] buffer;
     private int bufferPos;
-    private boolean forSigning;
+    private final SignatureState state = new SignatureState();
 
     protected abstract String algorithmName();
 
@@ -44,10 +44,10 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
         if (!algorithmName().equals(hbsPublicKey.getAlgorithm())) {
             throw new InvalidKeyException("Key algorithm mismatch: " + hbsPublicKey.getAlgorithm());
         }
-        this.publicKey = hbsPublicKey;
-        this.privateKey = null;
         resetBuffer();
-        this.forSigning = false;
+        privateKey = null;
+        this.publicKey = hbsPublicKey;
+        state.activateVerification();
     }
 
     @Override
@@ -64,10 +64,10 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
         if (!algorithmName().equals(hbsPrivateKey.getAlgorithm())) {
             throw new InvalidKeyException("Key algorithm mismatch: " + hbsPrivateKey.getAlgorithm());
         }
-        this.privateKey = hbsPrivateKey;
-        this.publicKey = null;
         resetBuffer();
-        this.forSigning = true;
+        publicKey = null;
+        this.privateKey = hbsPrivateKey;
+        state.activateSigning();
     }
 
     @Override
@@ -77,18 +77,12 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
 
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
-        if (b == null) {
-            throw new SignatureException("Input cannot be null");
-        }
-        if (off < 0 || len < 0 || off > b.length || len > b.length - off) {
-            throw new SignatureException("Invalid input range");
-        }
+        state.ensureReadyForUpdate(algorithmName());
+        SignerBuffer.validateUpdateInput(b, off, len);
         if (len == 0) {
             return;
         }
-        if (len > Integer.MAX_VALUE - bufferPos) {
-            throw new SignatureException("Input is too large");
-        }
+        SignerBuffer.validateAdditionalLength(bufferPos, len);
         int needed = bufferPos + len;
         ensureCapacity(needed);
         System.arraycopy(b, off, buffer, bufferPos, len);
@@ -97,18 +91,23 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
 
     @Override
     protected byte[] engineSign() throws SignatureException {
-        if (!forSigning || privateKey == null) {
+        state.ensureSigning(algorithmName());
+        if (privateKey == null) {
             throw new SignatureException("Not initialized for signing");
         }
-        byte[] data = currentInput();
+        byte[] data = null;
         synchronized (privateKey) {
             try {
+                data = currentInput();
                 StatefulHBSSignResult result = signWithOptionalStore(privateKey, data);
                 privateKey.updatePrivateData(result.getUpdatedPrivateKey());
                 return result.getSignature();
             } catch (Exception e) {
                 throw new SignatureException("Stateful HBS sign failed: " + e.getMessage(), e);
             } finally {
+                if (data != null) {
+                    Arrays.fill(data, (byte) 0);
+                }
                 resetBuffer();
             }
         }
@@ -116,19 +115,24 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
 
     @Override
     protected boolean engineVerify(byte[] sigBytes) throws SignatureException {
-        if (forSigning || publicKey == null) {
+        state.ensureVerification(algorithmName());
+        if (publicKey == null) {
             throw new SignatureException("Not initialized for verification");
         }
         if (sigBytes == null) {
             resetBuffer();
             throw new SignatureException("Signature cannot be null");
         }
-        byte[] data = currentInput();
+        byte[] data = null;
         try {
+            data = currentInput();
             return verify(publicKey, data, sigBytes);
         } catch (Exception e) {
             throw new SignatureException("Stateful HBS verify failed: " + e.getMessage(), e);
         } finally {
+            if (data != null) {
+                Arrays.fill(data, (byte) 0);
+            }
             resetBuffer();
         }
     }
@@ -174,7 +178,7 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
     }
 
     private byte[] currentInput() {
-        return bufferPos == 0 ? new byte[0] : Arrays.copyOf(buffer, bufferPos);
+        return bufferPos == 0 ? new byte[0] : SignerBuffer.copyOf(buffer, bufferPos);
     }
 
     private void ensureCapacity(int needed) throws SignatureException {
@@ -193,10 +197,14 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
             }
             newCapacity *= 2;
         }
-        buffer = Arrays.copyOf(buffer, newCapacity);
+        byte[] oldBuffer = buffer;
+        buffer = SignerBuffer.resize(oldBuffer, newCapacity);
     }
 
     private void resetBuffer() {
+        if (buffer != null) {
+            Arrays.fill(buffer, 0, bufferPos, (byte) 0);
+        }
         buffer = null;
         bufferPos = 0;
     }

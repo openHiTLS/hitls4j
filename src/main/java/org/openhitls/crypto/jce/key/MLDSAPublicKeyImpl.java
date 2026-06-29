@@ -10,14 +10,14 @@ public class MLDSAPublicKeyImpl implements MLDSAPublicKey {
     private final byte[] publicKeyData;
 
     public MLDSAPublicKeyImpl(byte[] encoded) {
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.params = null;
         this.publicKeyData = null;
     }
 
     public MLDSAPublicKeyImpl(MLDSAParameterSpec params, byte[] encoded) {
         this.params = params;
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.publicKeyData = null;
     }
 

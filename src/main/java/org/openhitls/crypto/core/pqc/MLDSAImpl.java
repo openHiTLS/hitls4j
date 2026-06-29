@@ -2,6 +2,9 @@ package org.openhitls.crypto.core.pqc;
 
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil.KeyMaterial;
 import org.openhitls.crypto.jce.spec.MLDSASignatureParameterSpec;
 
 public class MLDSAImpl extends NativeResource {
@@ -18,16 +21,31 @@ public class MLDSAImpl extends NativeResource {
         super(initContext(parameterSet), CryptoNative::mldsaFreeContext);
         this.parameterSet = parameterSet;
         this.hashAlgorithm = hashAlgorithm;
-        byte[][] keyPair = CryptoNative.mldsaGenerateKeyPair(nativeContext, this.parameterSet);
-        this.publicKey = keyPair[0];
-        this.privateKey = keyPair[1];
+        byte[][] keyPair = null;
+        try {
+            keyPair = CryptoNative.mldsaGenerateKeyPair(nativeContext, this.parameterSet);
+            if (keyPair == null || keyPair.length != 2 || keyPair[0] == null || keyPair[1] == null) {
+                throw new IllegalStateException("Generated ML-DSA key pair is invalid");
+            }
+            this.publicKey = keyPair[0];
+            this.privateKey = keyPair[1];
+        } catch (RuntimeException | Error e) {
+            SensitiveDataUtil.clear(keyPair != null && keyPair.length > 1 ? keyPair[1] : null);
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     public MLDSAImpl(String parameterSet, int hashAlgorithm, byte[] publicKey, byte[] privateKey) {
         super(initContext(parameterSet), CryptoNative::mldsaFreeContext);
         this.parameterSet = parameterSet;
         this.hashAlgorithm = hashAlgorithm;
-        setKeys(publicKey, privateKey);
+        try {
+            setKeys(publicKey, privateKey);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(this, e);
+            throw e;
+        }
     }
 
     private static long initContext(String parameterSet) {
@@ -41,9 +59,19 @@ public class MLDSAImpl extends NativeResource {
         if (publicKey == null && privateKey == null) {
             throw new IllegalArgumentException("At least one key must be non-null");
         }
-        CryptoNative.mldsaSetKeys(nativeContext, publicKey, privateKey);
-        this.publicKey = publicKey;
-        this.privateKey = privateKey;
+        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(publicKey, privateKey);
+        boolean updated = false;
+        try {
+            CryptoNative.mldsaSetKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey());
+            updated = true;
+            SensitiveDataUtil.clear(this.privateKey);
+            this.publicKey = keyMaterial.publicKey();
+            this.privateKey = keyMaterial.privateKey();
+        } finally {
+            if (!updated) {
+                keyMaterial.clearPrivate();
+            }
+        }
     }
 
     public byte[] getPublicKey() {

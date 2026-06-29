@@ -1,71 +1,91 @@
 package org.openhitls.crypto.jce.signer;
 
 import java.security.*;
+import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.ECParameterSpec;
+import java.security.spec.InvalidKeySpecException;
+import java.util.Arrays;
+import org.openhitls.crypto.core.NativeResourceUtil;
 import org.openhitls.crypto.core.asymmetric.ECDSAImpl;
-import org.openhitls.crypto.jce.key.ECPublicKey;
-import org.openhitls.crypto.jce.key.ECPrivateKey;
 import org.openhitls.crypto.jce.spec.SM2ParameterSpec;
-import org.openhitls.crypto.jce.spec.ECNamedCurveSpec;
+import org.openhitls.crypto.jce.util.ECCurveRegistry;
+import org.openhitls.crypto.jce.util.ECKeyEncoding;
 import org.openhitls.crypto.core.CryptoConstants;
 
 public class ECDSASigner extends SignatureSpi {
     private ECDSAImpl ecdsaImpl;
     private byte[] buffer;
-    private boolean forSigning;
+    private final SignatureState state = new SignatureState();
     private byte[] userId;
     private final int algorithm;
+    private final boolean sm2Signature;
 
     public ECDSASigner(String algorithmName) {
+        this(algorithmName, "SM3".equals(algorithmName));
+    }
+
+    private ECDSASigner(String algorithmName, boolean sm2Signature) {
         this.algorithm = getHashAlgorithm(algorithmName);
+        this.sm2Signature = sm2Signature;
     }
 
     // Inner classes for different signature algorithms
     public static final class SHA256withECDSA extends ECDSASigner {
         public SHA256withECDSA() {
-            super("SHA256");
+            super("SHA256", false);
         }
     }
 
     public static final class SHA384withECDSA extends ECDSASigner {
         public SHA384withECDSA() {
-            super("SHA384");
+            super("SHA384", false);
         }
     }
 
     public static final class SHA512withECDSA extends ECDSASigner {
         public SHA512withECDSA() {
-            super("SHA512");
+            super("SHA512", false);
         }
     }
 
     public static final class SM3withSM2 extends ECDSASigner {
         public SM3withSM2() {
-            super("SM3");
+            super("SM3", true);
         }
     }
 
     @Override
     protected void engineInitVerify(PublicKey publicKey) throws InvalidKeyException {
         if (!(publicKey instanceof ECPublicKey)) {
-            throw new InvalidKeyException("Key must be an instance of ECDSAPublicKey");
+            throw new InvalidKeyException("Key must implement ECPublicKey");
         }
         try {
-            ECParameterSpec params = ((ECPublicKey)publicKey).getParams();
-            if (!(params instanceof ECNamedCurveSpec)) {
-                throw new InvalidKeyException("Key parameters must be an instance of ECNamedCurveSpec");
+            ECPublicKey ecPublicKey = (ECPublicKey) publicKey;
+            ECParameterSpec params = ecPublicKey.getParams();
+            String curveName = getCurveName(params);
+            ensureCurveAllowed(curveName);
+            ECDSAImpl newImpl = new ECDSAImpl(
+                    curveName,
+                    algorithm,
+                    ECKeyEncoding.encodePublicPoint(ecPublicKey.getW(), params),
+                    null);
+            try {
+                if (userId != null) {
+                    newImpl.setUserId(userId);
+                }
+                commitImpl(newImpl, false);
+                newImpl = null;
+            } catch (InvalidKeyException | RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newImpl, e);
+                throw e;
             }
-            String curveName = ((ECNamedCurveSpec)params).getName();
-            ecdsaImpl = new ECDSAImpl(curveName, algorithm, ((ECPublicKey)publicKey).getEncoded(), null);
-            if (userId != null) {
-                ecdsaImpl.setUserId(userId);
-            }
+        } catch (InvalidKeyException e) {
+            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize ECDSA", e);
         }
-        buffer = null;
-        forSigning = false;
     }
 
     @Override
@@ -77,23 +97,37 @@ public class ECDSASigner extends SignatureSpi {
     protected void engineInitSign(PrivateKey privateKey, SecureRandom random) 
             throws InvalidKeyException {
         if (!(privateKey instanceof ECPrivateKey)) {
-            throw new InvalidKeyException("Key must be an instance of ECDSAPrivateKey");
+            throw new InvalidKeyException("Key must implement ECPrivateKey");
         }
         try {
-            ECParameterSpec params = ((ECPrivateKey)privateKey).getParams();
-            if (!(params instanceof ECNamedCurveSpec)) {
-                throw new InvalidKeyException("Key parameters must be an instance of ECNamedCurveSpec");
+            ECPrivateKey ecPrivateKey = (ECPrivateKey) privateKey;
+            ECParameterSpec params = ecPrivateKey.getParams();
+            String curveName = getCurveName(params);
+            ensureCurveAllowed(curveName);
+            byte[] encodedPrivate = ECKeyEncoding.encodePrivateValue(ecPrivateKey.getS(), params);
+            ECDSAImpl newImpl = null;
+            try {
+                newImpl = new ECDSAImpl(
+                        curveName,
+                        algorithm,
+                        null,
+                        encodedPrivate);
+                if (userId != null) {
+                    newImpl.setUserId(userId);
+                }
+                commitImpl(newImpl, true);
+                newImpl = null;
+            } catch (InvalidKeyException | RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newImpl, e);
+                throw e;
+            } finally {
+                Arrays.fill(encodedPrivate, (byte) 0);
             }
-            String curveName = ((ECNamedCurveSpec)params).getName();
-            ecdsaImpl = new ECDSAImpl(curveName, algorithm, null, ((ECPrivateKey)privateKey).getEncoded());
-            if (userId != null) {
-                ecdsaImpl.setUserId(userId);
-            }
+        } catch (InvalidKeyException e) {
+            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize ECDSA", e);
         }
-        buffer = null;
-        forSigning = true;
     }
 
     @Override
@@ -103,22 +137,13 @@ public class ECDSASigner extends SignatureSpi {
 
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
-        if (buffer == null) {
-            buffer = new byte[len];
-            System.arraycopy(b, off, buffer, 0, len);
-        } else {
-            byte[] newBuffer = new byte[buffer.length + len];
-            System.arraycopy(buffer, 0, newBuffer, 0, buffer.length);
-            System.arraycopy(b, off, newBuffer, buffer.length, len);
-            buffer = newBuffer;
-        }
+        state.ensureReadyForUpdate("ECDSA");
+        buffer = SignerBuffer.append(buffer, b, off, len);
     }
 
     @Override
     protected byte[] engineSign() throws SignatureException {
-        if (!forSigning) {
-            throw new SignatureException("Not initialized for signing");
-        }
+        state.ensureSigning("ECDSA");
         if (buffer == null) {
             throw new SignatureException("No data to sign");
         }
@@ -126,14 +151,14 @@ public class ECDSASigner extends SignatureSpi {
             return ecdsaImpl.signData(buffer);
         } catch (Exception e) {
             throw new SignatureException("Signing failed", e);
+        } finally {
+            clearBuffer();
         }
     }
 
     @Override
     protected boolean engineVerify(byte[] sigBytes) throws SignatureException {
-        if (forSigning) {
-            throw new SignatureException("Not initialized for verification");
-        }
+        state.ensureVerification("ECDSA");
         if (buffer == null) {
             throw new SignatureException("No data to verify");
         }
@@ -141,6 +166,22 @@ public class ECDSASigner extends SignatureSpi {
             return ecdsaImpl.verifySignature(buffer, sigBytes);
         } catch (Exception e) {
             throw new SignatureException("Verification failed", e);
+        } finally {
+            clearBuffer();
+        }
+    }
+
+    private void clearBuffer() {
+        buffer = SignerBuffer.clear(buffer);
+    }
+
+    private void commitImpl(ECDSAImpl newImpl, boolean signing) throws InvalidKeyException {
+        ecdsaImpl = NativeResourceUtil.replaceAfterClosing(ecdsaImpl, newImpl,
+                failure -> new InvalidKeyException("Failed to close previous ECDSA context", failure));
+        if (signing) {
+            state.activateSigning(this::clearBuffer);
+        } else {
+            state.activateVerification(this::clearBuffer);
         }
     }
 
@@ -159,21 +200,69 @@ public class ECDSASigner extends SignatureSpi {
     @Override
     protected void engineSetParameter(AlgorithmParameterSpec params) throws InvalidAlgorithmParameterException {
         if (params == null) {
-            userId = null;
+            if (state.isInitialized() && ecdsaImpl != null) {
+                ecdsaImpl.resetUserId();
+            }
+            clearUserId();
             return;
         }
         if (!(params instanceof SM2ParameterSpec)) {
             throw new InvalidAlgorithmParameterException("Only SM2ParameterSpec is supported");
         }
-        userId = ((SM2ParameterSpec)params).getId().clone();
-        if (ecdsaImpl != null) {
-            ecdsaImpl.setUserId(userId);
+        if (!sm2Signature) {
+            throw new InvalidAlgorithmParameterException("SM2ParameterSpec is only supported for SM3withSM2");
+        }
+        byte[] newUserId = ((SM2ParameterSpec)params).getId();
+        boolean updated = false;
+        try {
+            if (state.isInitialized() && ecdsaImpl != null) {
+                ecdsaImpl.setUserId(newUserId);
+            }
+            updated = true;
+            clearUserId();
+            userId = newUserId;
+        } finally {
+            if (!updated) {
+                Arrays.fill(newUserId, (byte) 0);
+            }
+        }
+    }
+
+    private void clearUserId() {
+        if (userId != null) {
+            Arrays.fill(userId, (byte) 0);
+            userId = null;
         }
     }
 
     @Override
     protected AlgorithmParameters engineGetParameters() {
         return null;
+    }
+
+    private static String getCurveName(ECParameterSpec params) throws InvalidKeyException {
+        if (params == null) {
+            throw new InvalidKeyException("EC key parameters cannot be null");
+        }
+        try {
+            return ECKeyEncoding.getCurveName(params);
+        } catch (InvalidKeySpecException e) {
+            throw new InvalidKeyException("Unsupported EC curve parameters", e);
+        }
+    }
+
+    private void ensureCurveAllowed(String curveName) throws InvalidKeyException {
+        if (sm2Signature) {
+            if (!isSM2Curve(curveName)) {
+                throw new InvalidKeyException("SM3withSM2 requires SM2 curve: " + curveName);
+            }
+        } else if (!ECCurveRegistry.isNistCurve(curveName)) {
+            throw new InvalidKeyException("ECDSA signature requires NIST curve: " + curveName);
+        }
+    }
+
+    private static boolean isSM2Curve(String curveName) {
+        return ECCurveRegistry.isSM2Curve(curveName);
     }
 
     private int getHashAlgorithm(String algorithmName) {

@@ -1,6 +1,7 @@
 package org.openhitls.crypto.jce.keyagreement;
 
 import org.openhitls.crypto.core.pqc.FrodoKEMImpl;
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.jce.key.FrodoKEMCiphertextKey;
 import org.openhitls.crypto.jce.key.FrodoKEMPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.FrodoKEMPublicKeyImpl;
@@ -10,6 +11,7 @@ import javax.crypto.KeyAgreementSpi;
 import javax.crypto.SecretKey;
 import java.security.*;
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Arrays;
 
 public class FrodoKEMKeyAgreement extends KeyAgreementSpi {
     private FrodoKEMImpl frodoKemImpl;
@@ -34,42 +36,57 @@ public class FrodoKEMKeyAgreement extends KeyAgreementSpi {
     }
 
     private void init(Key key, FrodoKEMParameterSpec params, SecureRandom random) throws InvalidKeyException {
+        clearState();
+
+        FrodoKEMPrivateKeyImpl newPrivateKey = null;
+        FrodoKEMPublicKeyImpl newPublicKey = null;
         if (key instanceof FrodoKEMPrivateKeyImpl) {
-            this.frodoKemPrivateKey = (FrodoKEMPrivateKeyImpl) key;
-            this.frodoKemPublicKey = null;
+            newPrivateKey = (FrodoKEMPrivateKeyImpl) key;
         } else if (key instanceof FrodoKEMPublicKeyImpl) {
-            this.frodoKemPublicKey = (FrodoKEMPublicKeyImpl) key;
-            this.frodoKemPrivateKey = null;
+            newPublicKey = (FrodoKEMPublicKeyImpl) key;
         } else {
             throw new InvalidKeyException("Key must be an instance of FrodoKEMPrivateKeyImpl or FrodoKEMPublicKeyImpl");
         }
 
+        String newParameterSet;
         if (params != null) {
-            parameterSet = params.getName();
-            if (!parameterSet.matches("^FrodoKEM-(640|976|1344)-(SHAKE|AES)$")) {
-                throw new InvalidKeyException("Unsupported FrodoKEM parameter set: " + parameterSet);
+            newParameterSet = params.getName();
+            if (!newParameterSet.matches("^FrodoKEM-(640|976|1344)-(SHAKE|AES)$")) {
+                throw new InvalidKeyException("Unsupported FrodoKEM parameter set: " + newParameterSet);
             }
-        } else if (frodoKemPrivateKey != null) {
-            FrodoKEMParameterSpec keyParams = frodoKemPrivateKey.getParams();
+        } else if (newPrivateKey != null) {
+            FrodoKEMParameterSpec keyParams = newPrivateKey.getParams();
             if (keyParams == null) {
                 throw new InvalidKeyException("FrodoKEM key is missing parameter metadata");
             }
-            parameterSet = keyParams.getName();
-        } else if (frodoKemPublicKey != null) {
-            FrodoKEMParameterSpec keyParams = frodoKemPublicKey.getParams();
+            newParameterSet = keyParams.getName();
+        } else if (newPublicKey != null) {
+            FrodoKEMParameterSpec keyParams = newPublicKey.getParams();
             if (keyParams == null) {
                 throw new InvalidKeyException("FrodoKEM key is missing parameter metadata");
             }
-            parameterSet = keyParams.getName();
+            newParameterSet = keyParams.getName();
         } else {
             throw new InvalidKeyException("FrodoKEM parameter set not specified");
         }
 
-        if (frodoKemPrivateKey != null) {
-            frodoKemImpl = new FrodoKEMImpl(parameterSet, null, frodoKemPrivateKey.getEncoded());
+        byte[] privateKeyEncoded = null;
+        FrodoKEMImpl newImpl;
+        if (newPrivateKey != null) {
+            try {
+                privateKeyEncoded = newPrivateKey.getEncoded();
+                newImpl = new FrodoKEMImpl(newParameterSet, null, privateKeyEncoded);
+            } finally {
+                SensitiveDataUtil.clear(privateKeyEncoded);
+            }
         } else {
-            frodoKemImpl = new FrodoKEMImpl(parameterSet, frodoKemPublicKey.getEncoded(), null);
+            newImpl = new FrodoKEMImpl(newParameterSet, newPublicKey.getEncoded(), null);
         }
+
+        frodoKemPrivateKey = newPrivateKey;
+        frodoKemPublicKey = newPublicKey;
+        parameterSet = newParameterSet;
+        frodoKemImpl = newImpl;
     }
 
     @Override
@@ -82,6 +99,7 @@ public class FrodoKEMKeyAgreement extends KeyAgreementSpi {
             // This is the decapsulation case
             if (key instanceof FrodoKEMCiphertextKey) {
                 this.ciphertext = ((FrodoKEMCiphertextKey) key).getEncoded();
+                clearPendingSharedKey();
             } else {
                 throw new InvalidKeyException("Expected FrodoKEMCiphertextKey for decapsulation");
             }
@@ -115,6 +133,30 @@ public class FrodoKEMKeyAgreement extends KeyAgreementSpi {
         }
 
         return frodoKemImpl.decapsulate(ciphertext);
+    }
+
+    private void clearPendingState() {
+        clearPendingSharedKey();
+        ciphertext = null;
+    }
+
+    private void clearState() {
+        clearPendingState();
+        FrodoKEMImpl oldImpl = frodoKemImpl;
+        frodoKemImpl = null;
+        frodoKemPrivateKey = null;
+        frodoKemPublicKey = null;
+        parameterSet = null;
+        if (oldImpl != null) {
+            oldImpl.close();
+        }
+    }
+
+    private void clearPendingSharedKey() {
+        if (sharedKey != null) {
+            Arrays.fill(sharedKey, (byte) 0);
+            sharedKey = null;
+        }
     }
 
     @Override

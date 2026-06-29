@@ -10,24 +10,27 @@ import java.security.SignatureSpi;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Arrays;
 
+import org.openhitls.crypto.core.NativeResourceUtil;
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
 import org.openhitls.crypto.jce.key.RSAKeyUtil;
 
 public class RSASigner extends SignatureSpi {
-    private final RSAImpl rsaImpl;
+    private RSAImpl rsaImpl;
     private final String digestAlgorithm;
-    private byte[] digestedMessage;
-    private boolean isInitialized;
-    private boolean forSigning;
+    private MessageBuffer messageBuffer;
+    private final SignatureState state = new SignatureState();
+    private RSAPadding.PSSParameterSpec pssParams;
 
     public RSASigner(String digestAlgorithm) {
-        this.rsaImpl = new RSAImpl();
         this.digestAlgorithm = digestAlgorithm;
+        this.rsaImpl = createRSAImpl();
     }
 
     protected RSASigner(String digestAlgorithm, RSAPadding.PSSParameterSpec pssParams) {
         this(digestAlgorithm);
+        this.pssParams = pssParams;
         this.rsaImpl.setPSSParameters(pssParams);
     }
 
@@ -45,10 +48,19 @@ public class RSASigner extends SignatureSpi {
         }
         byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(exponent);
 
-        rsaImpl.setKeys(modulus, null, publicExponent);
-        rsaImpl.setDigestAlgorithm(digestAlgorithm);
-        isInitialized = true;
-        forSigning = false;
+        RSAImpl newImpl = createRSAImpl();
+        try {
+            newImpl.setKeys(modulus, null, publicExponent);
+            newImpl.setDigestAlgorithm(digestAlgorithm);
+            commitImpl(newImpl, false);
+            newImpl = null;
+        } catch (InvalidKeyException e) {
+            NativeResourceUtil.closeSuppressing(newImpl, e);
+            throw e;
+        } catch (RuntimeException e) {
+            NativeResourceUtil.closeSuppressing(newImpl, e);
+            throw new InvalidKeyException("Failed to initialize verification key", e);
+        }
     }
 
     @Override
@@ -58,14 +70,29 @@ public class RSASigner extends SignatureSpi {
         }
 
         RSAPrivateKey rsaKey = (RSAPrivateKey) privateKey;
-        byte[] modulus = RSAKeyUtil.toUnsignedBytes(rsaKey.getModulus());
-        byte[] privateExponent = RSAKeyUtil.toUnsignedBytes(rsaKey.getPrivateExponent());
-        byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(RSAKeyUtil.requirePublicExponent(rsaKey));
+        byte[] privateExponent = null;
+        RSAImpl newImpl = null;
+        try {
+            byte[] modulus = RSAKeyUtil.toUnsignedBytes(rsaKey.getModulus());
+            privateExponent = RSAKeyUtil.toUnsignedBytes(rsaKey.getPrivateExponent());
+            byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(RSAKeyUtil.requirePublicExponent(rsaKey));
 
-        rsaImpl.setKeys(modulus, privateExponent, publicExponent);
-        rsaImpl.setDigestAlgorithm(digestAlgorithm);
-        isInitialized = true;
-        forSigning = true;
+            newImpl = createRSAImpl();
+            newImpl.setKeys(modulus, privateExponent, publicExponent);
+            newImpl.setDigestAlgorithm(digestAlgorithm);
+            commitImpl(newImpl, true);
+            newImpl = null;
+        } catch (InvalidKeyException e) {
+            NativeResourceUtil.closeSuppressing(newImpl, e);
+            throw e;
+        } catch (RuntimeException e) {
+            NativeResourceUtil.closeSuppressing(newImpl, e);
+            throw new InvalidKeyException("Failed to initialize signing key", e);
+        } finally {
+            if (privateExponent != null) {
+                Arrays.fill(privateExponent, (byte) 0);
+            }
+        }
     }
 
     @Override
@@ -75,65 +102,56 @@ public class RSASigner extends SignatureSpi {
 
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
-        if (!isInitialized) {
-            throw new SignatureException("RSA signature not initialized");
-        }
-
-        if (b == null) {
-            throw new SignatureException("Input buffer must not be null");
-        }
-
-        if (off < 0 || len < 0 || off + len > b.length) {
-            throw new SignatureException("Invalid input buffer parameters");
-        }
-
-        byte[] input = new byte[len];
-        System.arraycopy(b, off, input, 0, len);
-        digestedMessage = input;
+        state.ensureReadyForUpdate("RSA");
+        SignerBuffer.validateUpdateInput(b, off, len);
+        messageBuffer.write(b, off, len);
     }
 
     @Override
     protected byte[] engineSign() throws SignatureException {
-        if (!isInitialized || !forSigning) {
-            throw new SignatureException("RSA signature not initialized for signing");
-        }
-
-        if (digestedMessage == null) {
-            throw new SignatureException("No data to sign");
-        }
-
+        state.ensureSigning("RSA");
+        byte[] message = null;
         try {
-            return rsaImpl.sign(digestedMessage);
+            message = messageBuffer.toByteArray();
+            return rsaImpl.sign(message);
         } catch (Exception e) {
             throw new SignatureException("Failed to sign data", e);
+        } finally {
+            if (message != null) {
+                Arrays.fill(message, (byte) 0);
+            }
+            clearMessageBuffer();
         }
     }
 
     @Override
     protected boolean engineVerify(byte[] sigBytes) throws SignatureException {
-        if (!isInitialized || forSigning) {
-            throw new SignatureException("RSA signature not initialized for verification");
-        }
-
-        if (digestedMessage == null) {
-            throw new SignatureException("No data to verify");
-        }
+        state.ensureVerification("RSA");
 
         if (sigBytes == null) {
+            clearMessageBuffer();
             throw new SignatureException("Signature bytes must not be null");
         }
 
+        byte[] message = null;
         try {
-            return rsaImpl.verify(digestedMessage, sigBytes);
+            message = messageBuffer.toByteArray();
+            return rsaImpl.verify(message, sigBytes);
         } catch (Exception e) {
             throw new SignatureException("Failed to verify signature", e);
+        } finally {
+            if (message != null) {
+                Arrays.fill(message, (byte) 0);
+            }
+            clearMessageBuffer();
         }
     }
 
     @Override
     protected void engineSetParameter(AlgorithmParameterSpec params) throws InvalidParameterException {
         if (params instanceof RSAPadding.PSSParameterSpec) {
-            rsaImpl.setPSSParameters((RSAPadding.PSSParameterSpec) params);
+            pssParams = (RSAPadding.PSSParameterSpec) params;
+            rsaImpl.setPSSParameters(pssParams);
         } else {
             throw new InvalidParameterException("Only RSAPadding.PSSParameterSpec is supported");
         }
@@ -147,6 +165,99 @@ public class RSASigner extends SignatureSpi {
     @Override
     protected Object engineGetParameter(String param) throws InvalidParameterException {
         throw new InvalidParameterException("Parameters not supported");
+    }
+
+    private void clearMessageBuffer() {
+        if (messageBuffer != null) {
+            messageBuffer.clear();
+        }
+    }
+
+    private RSAImpl createRSAImpl() {
+        RSAImpl impl = new RSAImpl();
+        try {
+            if (pssParams != null) {
+                impl.setPSSParameters(pssParams);
+            }
+            return impl;
+        } catch (RuntimeException e) {
+            NativeResourceUtil.closeSuppressing(impl, e);
+            throw e;
+        }
+    }
+
+    private void commitImpl(RSAImpl newImpl, boolean signing) throws InvalidKeyException {
+        rsaImpl = NativeResourceUtil.replaceAfterClosing(rsaImpl, newImpl,
+                failure -> new InvalidKeyException("Failed to close previous RSA context", failure));
+        if (signing) {
+            state.activateSigning(this::resetMessageBuffer);
+        } else {
+            state.activateVerification(this::resetMessageBuffer);
+        }
+    }
+
+    private void resetMessageBuffer() {
+        clearMessageBuffer();
+        messageBuffer = new MessageBuffer();
+    }
+
+    MessageBufferStatus messageBufferStatus() {
+        return messageBuffer;
+    }
+
+    interface MessageBufferStatus {
+        boolean isCleared();
+    }
+
+    private static final class MessageBuffer implements MessageBufferStatus {
+        private static final int DEFAULT_CAPACITY = 32;
+
+        private byte[] buffer = new byte[DEFAULT_CAPACITY];
+        private int count;
+
+        void write(byte[] input, int offset, int length) {
+            ensureCapacity(count + length);
+            System.arraycopy(input, offset, buffer, count, length);
+            count += length;
+        }
+
+        byte[] toByteArray() {
+            return SignerBuffer.copyOf(buffer, count);
+        }
+
+        void clear() {
+            Arrays.fill(buffer, (byte) 0);
+            count = 0;
+        }
+
+        @Override
+        public boolean isCleared() {
+            if (count != 0) {
+                return false;
+            }
+            for (byte value : buffer) {
+                if (value != 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void ensureCapacity(int minCapacity) {
+            if (minCapacity < 0) {
+                throw new OutOfMemoryError("Required array size too large");
+            }
+            if (minCapacity <= buffer.length) {
+                return;
+            }
+
+            int newCapacity = Math.max(buffer.length << 1, minCapacity);
+            if (newCapacity < 0) {
+                newCapacity = Integer.MAX_VALUE;
+            }
+
+            buffer = SignerBuffer.resize(buffer, newCapacity);
+        }
     }
 
     public static final class SHA224withRSA extends RSASigner {

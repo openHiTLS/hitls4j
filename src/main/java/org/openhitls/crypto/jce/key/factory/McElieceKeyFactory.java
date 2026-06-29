@@ -20,6 +20,9 @@ public class McElieceKeyFactory extends KeyFactorySpi {
 
     @Override
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof McEliecePrivateKeySpec) {
             McEliecePrivateKeySpec spec = (McEliecePrivateKeySpec) keySpec;
             return new McEliecePrivateKeyImpl(spec.getParams(), spec.getEncoded());
@@ -32,6 +35,9 @@ public class McElieceKeyFactory extends KeyFactorySpi {
 
     @Override
     protected PublicKey engineGeneratePublic(KeySpec keySpec) throws InvalidKeySpecException {
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
+        }
         if (keySpec instanceof McEliecePublicKeySpec) {
             McEliecePublicKeySpec spec = (McEliecePublicKeySpec) keySpec;
             return new McEliecePublicKeyImpl(spec.getParams(), spec.getEncoded());
@@ -46,6 +52,9 @@ public class McElieceKeyFactory extends KeyFactorySpi {
     protected <T extends KeySpec> T engineGetKeySpec(Key key, Class<T> keySpec) throws InvalidKeySpecException {
         if (key == null) {
             throw new InvalidKeySpecException("Key cannot be null");
+        }
+        if (keySpec == null) {
+            throw new InvalidKeySpecException("Key specification cannot be null");
         }
 
         if (key instanceof McEliecePublicKeyImpl) {

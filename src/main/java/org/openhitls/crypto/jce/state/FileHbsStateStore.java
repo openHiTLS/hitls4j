@@ -23,6 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
+
 public final class FileHbsStateStore implements HbsStateStore {
     private static final String MAGIC = "HITLS4J-HBS-STATE";
     private static final int FORMAT_VERSION = 1;
@@ -134,36 +136,50 @@ public final class FileHbsStateStore implements HbsStateStore {
             throw new GeneralSecurityException("Invalid HBS state file length: " + fileLen);
         }
         byte[] file = Files.readAllBytes(path);
-        byte[] body = Arrays.copyOf(file, file.length - CHECKSUM_LEN);
-        byte[] checksum = Arrays.copyOfRange(file, file.length - CHECKSUM_LEN, file.length);
-        if (!MessageDigest.isEqual(authTag(body), checksum)) {
-            throw new GeneralSecurityException("HBS state authentication tag mismatch");
+        byte[] body = null;
+        byte[] checksum = null;
+        byte[] publicKey = null;
+        byte[] privateState = null;
+        try {
+            body = Arrays.copyOf(file, file.length - CHECKSUM_LEN);
+            checksum = Arrays.copyOfRange(file, file.length - CHECKSUM_LEN, file.length);
+            if (!MessageDigest.isEqual(authTag(body), checksum)) {
+                throw new GeneralSecurityException("HBS state authentication tag mismatch");
+            }
+            DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+            String magic = in.readUTF();
+            int version = in.readInt();
+            if (!MAGIC.equals(magic) || version != FORMAT_VERSION) {
+                throw new GeneralSecurityException("Unsupported HBS state format");
+            }
+            String algorithm = in.readUTF();
+            String parameterSet = in.readUTF();
+            String keyId = in.readUTF();
+            long remaining = in.readLong();
+            long stateVersion = in.readLong();
+            publicKey = readBytes(in);
+            privateState = readBytes(in);
+            if (in.available() != 0) {
+                throw new GeneralSecurityException("HBS state file contains trailing data");
+            }
+            return new HbsStateRecord(keyId, algorithm, parameterSet, publicKey, privateState, remaining, stateVersion);
+        } finally {
+            SensitiveDataUtil.clear(file);
+            SensitiveDataUtil.clear(body);
+            SensitiveDataUtil.clear(checksum);
+            SensitiveDataUtil.clear(publicKey);
+            SensitiveDataUtil.clear(privateState);
         }
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
-        String magic = in.readUTF();
-        int version = in.readInt();
-        if (!MAGIC.equals(magic) || version != FORMAT_VERSION) {
-            throw new GeneralSecurityException("Unsupported HBS state format");
-        }
-        String algorithm = in.readUTF();
-        String parameterSet = in.readUTF();
-        String keyId = in.readUTF();
-        long remaining = in.readLong();
-        long stateVersion = in.readLong();
-        byte[] publicKey = readBytes(in);
-        byte[] privateState = readBytes(in);
-        if (in.available() != 0) {
-            throw new GeneralSecurityException("HBS state file contains trailing data");
-        }
-        return new HbsStateRecord(keyId, algorithm, parameterSet, publicKey, privateState, remaining, stateVersion);
     }
 
     private void writeRecordAtomically(Path path, HbsStateRecord record)
             throws IOException, GeneralSecurityException {
-        byte[] file = encodeRecord(record);
-        Path tmp = Files.createTempFile(path.getParent(), "." + path.getFileName().toString(), ".tmp");
+        byte[] file = null;
+        Path tmp = null;
         boolean moved = false;
         try {
+            file = encodeRecord(record);
+            tmp = Files.createTempFile(path.getParent(), "." + path.getFileName().toString(), ".tmp");
             try (FileChannel channel = FileChannel.open(tmp,
                     StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
                 ByteBuffer buffer = ByteBuffer.wrap(file);
@@ -183,32 +199,46 @@ public final class FileHbsStateStore implements HbsStateStore {
             moved = true;
             fsyncDirectory(path.getParent());
         } finally {
-            if (!moved) {
+            SensitiveDataUtil.clear(file);
+            if (!moved && tmp != null) {
                 Files.deleteIfExists(tmp);
             }
         }
     }
 
     private byte[] encodeRecord(HbsStateRecord record) throws IOException, GeneralSecurityException {
+        byte[] publicKey = null;
+        byte[] privateState = null;
+        byte[] body = null;
+        byte[] checksum = null;
         ByteArrayOutputStream bodyBytes = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(bodyBytes);
-        out.writeUTF(MAGIC);
-        out.writeInt(FORMAT_VERSION);
-        out.writeUTF(record.getAlgorithm());
-        out.writeUTF(record.getParameterSet());
-        out.writeUTF(record.getKeyId());
-        out.writeLong(record.getRemainingSignatures());
-        out.writeLong(record.getVersion());
-        writeBytes(out, record.getPublicKey());
-        writeBytes(out, record.getPrivateState());
-        out.flush();
+        try {
+            out.writeUTF(MAGIC);
+            out.writeInt(FORMAT_VERSION);
+            out.writeUTF(record.getAlgorithm());
+            out.writeUTF(record.getParameterSet());
+            out.writeUTF(record.getKeyId());
+            out.writeLong(record.getRemainingSignatures());
+            out.writeLong(record.getVersion());
+            publicKey = record.getPublicKey();
+            privateState = record.getPrivateState();
+            writeBytes(out, publicKey);
+            writeBytes(out, privateState);
+            out.flush();
 
-        byte[] body = bodyBytes.toByteArray();
-        byte[] checksum = authTag(body);
-        ByteArrayOutputStream fileBytes = new ByteArrayOutputStream(body.length + checksum.length);
-        fileBytes.write(body);
-        fileBytes.write(checksum);
-        return fileBytes.toByteArray();
+            body = bodyBytes.toByteArray();
+            checksum = authTag(body);
+            ByteArrayOutputStream fileBytes = new ByteArrayOutputStream(body.length + checksum.length);
+            fileBytes.write(body);
+            fileBytes.write(checksum);
+            return fileBytes.toByteArray();
+        } finally {
+            SensitiveDataUtil.clear(publicKey);
+            SensitiveDataUtil.clear(privateState);
+            SensitiveDataUtil.clear(body);
+            SensitiveDataUtil.clear(checksum);
+        }
     }
 
     private void ensureMonotonicVersion(Path path, HbsStateRecord candidate)

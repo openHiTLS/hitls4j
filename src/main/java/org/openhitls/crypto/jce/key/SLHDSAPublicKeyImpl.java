@@ -10,14 +10,14 @@ public class SLHDSAPublicKeyImpl implements SLHDSAPublicKey{
     private final byte[] publicKeyData; // raw public key data, not support yet
 
     public SLHDSAPublicKeyImpl(byte[] encoded) {
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.params = null;
         this.publicKeyData = null;
     }
 
     public SLHDSAPublicKeyImpl(SLHDSAParameterSpec params, byte[] encoded) {
         this.params = params;
-        this.encoded = encoded;
+        this.encoded = encoded != null ? encoded.clone() : null;
         this.publicKeyData = null;
     }
 

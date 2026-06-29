@@ -6,6 +6,7 @@ import java.security.KeyPairGeneratorSpi;
 import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
 
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.SLHDSAImpl;
 import org.openhitls.crypto.jce.key.SLHDSAPrivateKeyImpl;
 import org.openhitls.crypto.jce.key.SLHDSAPublicKeyImpl;
@@ -39,13 +40,19 @@ public class SLHDSAKeyPairGenerator extends KeyPairGeneratorSpi {
             throw new IllegalStateException("SLHDSA parameters not initialized");
         }
 
-        SLHDSAImpl slhdsaImpl = new SLHDSAImpl(paramSetName);
-        byte[] publicKey = slhdsaImpl.getPublicKey();
-        byte[] privateKey = slhdsaImpl.getPrivateKey();
+        try (SLHDSAImpl slhdsaImpl = new SLHDSAImpl(paramSetName)) {
+            byte[] publicKey = slhdsaImpl.getPublicKey();
+            byte[] privateKey = null;
+            try {
+                privateKey = slhdsaImpl.getPrivateKey();
 
-        return new KeyPair(
-                new SLHDSAPublicKeyImpl(params, publicKey),
-                new SLHDSAPrivateKeyImpl(params, privateKey)
-        );
+                return new KeyPair(
+                        new SLHDSAPublicKeyImpl(params, publicKey),
+                        new SLHDSAPrivateKeyImpl(params, privateKey)
+                );
+            } finally {
+                SensitiveDataUtil.clear(privateKey);
+            }
+        }
     }
 }

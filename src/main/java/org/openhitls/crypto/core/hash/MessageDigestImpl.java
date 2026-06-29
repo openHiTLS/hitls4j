@@ -26,7 +26,7 @@ public class MessageDigestImpl extends NativeResource {
         if (data == null) {
             throw new IllegalArgumentException("Input data cannot be null");
         }
-        if (offset < 0 || length < 0 || offset + length > data.length) {
+        if (offset < 0 || length < 0 || length > data.length - offset) {
             throw new IllegalArgumentException("Invalid offset or length");
         }
         CryptoNative.messageDigestUpdate(nativeContext, data, offset, length);
@@ -42,8 +42,9 @@ public class MessageDigestImpl extends NativeResource {
     }
 
     public static byte[] hash(String algorithm, byte[] data) {
-        MessageDigestImpl md = new MessageDigestImpl(algorithm);
-        return md.digest(data);
+        try (MessageDigestImpl md = new MessageDigestImpl(algorithm)) {
+            return md.digest(data);
+        }
     }
 
     public String getAlgorithm() {

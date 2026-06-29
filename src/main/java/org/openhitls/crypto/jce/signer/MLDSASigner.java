@@ -1,6 +1,8 @@
 package org.openhitls.crypto.jce.signer;
 
 import org.openhitls.crypto.core.CryptoConstants;
+import org.openhitls.crypto.core.NativeResourceUtil;
+import org.openhitls.crypto.core.SensitiveDataUtil;
 import org.openhitls.crypto.core.pqc.MLDSAImpl;
 import org.openhitls.crypto.jce.interfaces.MLDSAPrivateKey;
 import org.openhitls.crypto.jce.interfaces.MLDSAPublicKey;
@@ -15,12 +17,18 @@ import java.security.*;
 public class MLDSASigner extends SignatureSpi {
     private MLDSAImpl mldsaImpl;
     private byte[] buffer;
-    private boolean forSigning;
+    private final SignatureState state = new SignatureState();
     private final int hashAlgorithm;
     private MLDSASignatureParameterSpec signParams;
 
     public MLDSASigner(String algorithm) {
         this.hashAlgorithm = getHashAlgorithm(algorithm);
+    }
+
+    public static final class SM3withMLDSA extends MLDSASigner {
+        public SM3withMLDSA(){
+            super("SM3");
+        }
     }
 
     public static final class SHA256withMLDSA extends MLDSASigner {
@@ -61,16 +69,24 @@ public class MLDSASigner extends SignatureSpi {
 
             // Ensure signParams is not null, set default values
             if (signParams == null) {
-                signParams = new MLDSASignatureParameterSpec(false, false, false, false, null);
+                signParams = new MLDSASignatureParameterSpec(false, false, false, null);
             }
 
             byte[] publicKeyEncoded = mldsaPublicKey.getEncoded();
-            mldsaImpl = new MLDSAImpl(parameterSetName, hashAlgorithm, publicKeyEncoded, null);
+            MLDSAImpl newImpl = null;
+            try {
+                newImpl = new MLDSAImpl(parameterSetName, hashAlgorithm, publicKeyEncoded, null);
+                commitImpl(newImpl, false);
+                newImpl = null;
+            } catch (InvalidKeyException | RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newImpl, e);
+                throw e;
+            }
+        } catch (InvalidKeyException e) {
+            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize MLDSA: " + e.getMessage(), e);
         }
-        buffer = null;
-        forSigning = false;
     }
 
     @Override
@@ -81,7 +97,7 @@ public class MLDSASigner extends SignatureSpi {
     @Override
     protected void engineInitSign(PrivateKey privateKey, SecureRandom random) throws InvalidKeyException {
         if (!(privateKey instanceof MLDSAPrivateKey)) {
-            throw new InvalidKeyException("Key must be an instance of MLDSAPublicKey");
+            throw new InvalidKeyException("Key must be an instance of MLDSAPrivateKey");
         }
         try {
             MLDSAPrivateKeyImpl mldsaPrivateKey = (MLDSAPrivateKeyImpl) privateKey;
@@ -98,16 +114,27 @@ public class MLDSASigner extends SignatureSpi {
 
             // Ensure signParams is not null, set default values
             if (signParams == null) {
-                signParams = new MLDSASignatureParameterSpec(false, false, false, false, null);
+                signParams = new MLDSASignatureParameterSpec(false, false, false, null);
             }
 
-            byte[] privateKeyEncoded = mldsaPrivateKey.getEncoded();
-            mldsaImpl = new MLDSAImpl(parameterSetName, hashAlgorithm, null, privateKeyEncoded);
+            byte[] privateKeyEncoded = null;
+            MLDSAImpl newImpl = null;
+            try {
+                privateKeyEncoded = mldsaPrivateKey.getEncoded();
+                newImpl = new MLDSAImpl(parameterSetName, hashAlgorithm, null, privateKeyEncoded);
+                commitImpl(newImpl, true);
+                newImpl = null;
+            } catch (InvalidKeyException | RuntimeException e) {
+                NativeResourceUtil.closeSuppressing(newImpl, e);
+                throw e;
+            } finally {
+                SensitiveDataUtil.clear(privateKeyEncoded);
+            }
+        } catch (InvalidKeyException e) {
+            throw e;
         } catch (Exception e) {
             throw new InvalidKeyException("Failed to initialize MLDSA: " + e.getMessage(), e);
         }
-        buffer = null;
-        forSigning = true;
     }
 
     @Override
@@ -117,26 +144,13 @@ public class MLDSASigner extends SignatureSpi {
 
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
-        try {
-            if (buffer == null) {
-                buffer = new byte[len];
-                System.arraycopy(b, off, buffer, 0, len);
-            } else {
-                byte[] newBuffer = new byte[buffer.length + len];
-                System.arraycopy(buffer, 0, newBuffer, 0, buffer.length);
-                System.arraycopy(b, off, newBuffer, buffer.length, len);
-                buffer = newBuffer;
-            }
-        } catch (Exception e) {
-            throw new SignatureException("Update failed", e);
-        }
+        state.ensureReadyForUpdate("MLDSA");
+        buffer = SignerBuffer.append(buffer, b, off, len);
     }
 
     @Override
     protected byte[] engineSign() throws SignatureException {
-        if (!forSigning) {
-            throw new SignatureException("Not initialized for signature");
-        }
+        state.ensureSigning("MLDSA");
         if (buffer == null) {
             throw new SignatureException("No data to sign");
         }
@@ -144,14 +158,14 @@ public class MLDSASigner extends SignatureSpi {
             return mldsaImpl.signData(buffer, signParams);
         } catch (Exception e) {
             throw new SignatureException("Sign failed: " + e.getMessage(), e);
+        } finally {
+            clearBuffer();
         }
     }
 
     @Override
     protected boolean engineVerify(byte[] sigBytes) throws SignatureException {
-        if (forSigning) {
-            throw new SignatureException("Not initialized for verification");
-        }
+        state.ensureVerification("MLDSA");
         if (buffer == null) {
             throw new SignatureException("No data to verify");
         }
@@ -159,6 +173,22 @@ public class MLDSASigner extends SignatureSpi {
             return mldsaImpl.verifySignature(buffer, sigBytes, signParams);
         } catch (Exception e) {
             throw new SignatureException("Verify failed: " + e.getMessage(), e);
+        } finally {
+            clearBuffer();
+        }
+    }
+
+    private void clearBuffer() {
+        buffer = SignerBuffer.clear(buffer);
+    }
+
+    private void commitImpl(MLDSAImpl newImpl, boolean signing) throws InvalidKeyException {
+        mldsaImpl = NativeResourceUtil.replaceAfterClosing(mldsaImpl, newImpl,
+                failure -> new InvalidKeyException("Failed to close previous MLDSA context", failure));
+        if (signing) {
+            state.activateSigning(this::clearBuffer);
+        } else {
+            state.activateVerification(this::clearBuffer);
         }
     }
 
@@ -171,7 +201,7 @@ public class MLDSASigner extends SignatureSpi {
     protected void engineSetParameter(AlgorithmParameterSpec params) throws InvalidAlgorithmParameterException {
         if (params == null) {
             // Reset to default values if null is passed
-            this.signParams = new MLDSASignatureParameterSpec(false, false, false, false, null);
+            this.signParams = new MLDSASignatureParameterSpec(false, false, false, null);
         } else if (params instanceof MLDSASignatureParameterSpec) {
             this.signParams = (MLDSASignatureParameterSpec) params;
         } else {
