@@ -1,7 +1,11 @@
 package org.openhitls.crypto.jce.provider;
 
 import com.sun.jna.Library;
+import com.sun.jna.Memory;
 import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.Structure;
+import com.sun.jna.ptr.PointerByReference;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -11,9 +15,11 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.ECGenParameterSpec;
-import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -49,8 +55,7 @@ import static org.junit.Assert.*;
  * and SDF_LIB_PATH.
  *
  * The SDF backend path is test setup, not a HiTLS4J provider API parameter.
- * ProviderTest sets SDF_LIB_PATH before loading SDFP. HiTLS4J's
- * ProviderConfig.loadProvider(...) API does not special-case SDFP parameters.
+ * ProviderTest passes it to SDFP as SDFP_PARAM_SDF_LIB_PATH through BSL_Param.
  *
  * Use one consistent openHiTLS build across HiTLS4J, SDFP, and the SDF backend
  * where possible. Mixing shared libraries built against different openHiTLS
@@ -68,12 +73,41 @@ public class ProviderTest extends BaseTest {
     private static final String SDF_LIB_PATH_ENV = "SDF_LIB_PATH";
     private static final String DEFAULT_PROVIDER_NAME = "SDFProv";
     private static final String DEFAULT_BUILD_DIR = "build-noasan";
+    private static final String DEFAULT_OPENHITLS_PROVIDER_NAME = "default";
+    private static final int CRYPT_SUCCESS = 0;
+    private static final int BSL_SAL_LIB_FMT_OFF = 0;
+    private static final int BSL_SAL_LIB_FMT_LIBSO = 2;
+    private static final int BSL_PARAM_TYPE_OCTETS = 9;
+    private static final int SDFP_PARAM_SDF_LIB_PATH = 102;
 
     private interface LibC extends Library {
         int setenv(String name, String value, int overwrite);
     }
 
+    private interface HitlsCrypto extends Library {
+        int CRYPT_EAL_ProviderSetLoadPath(Pointer libCtx, String searchPath);
+
+        int CRYPT_EAL_ProviderLoad(Pointer libCtx, int cmd, String providerName, Pointer param,
+            PointerByReference mgrCtx);
+
+        int CRYPT_EAL_ProviderUnload(Pointer libCtx, int cmd, String providerName);
+    }
+
+    public static class BslParam extends Structure {
+        public int key;
+        public int valueType;
+        public Pointer value;
+        public int valueLen;
+        public int useLen;
+
+        @Override
+        protected List<String> getFieldOrder() {
+            return Arrays.asList("key", "valueType", "value", "valueLen", "useLen");
+        }
+    }
+
     private static boolean providerLoaded = false;
+    private static boolean providerLoadedThroughBslParam = false;
     private static String providerPath;
     private static String providerName;
     private static String sdfLibPath;
@@ -98,7 +132,11 @@ public class ProviderTest extends BaseTest {
     @AfterClass
     public static void tearDownProvider() {
         if (providerLoaded) {
-            ProviderConfig.unloadProvider();
+            if (providerLoadedThroughBslParam) {
+                unloadProviderLoadedThroughBslParam();
+            } else {
+                ProviderConfig.unloadProvider();
+            }
             System.out.println("Provider unloaded");
         }
     }
@@ -178,7 +216,7 @@ public class ProviderTest extends BaseTest {
 
     private static boolean loadConfiguredProvider() {
         setSdfLibPathForProvider();
-        ProviderConfig.loadProvider(providerPath, providerName);
+        loadProviderThroughBslParam();
         System.out.println("Provider loaded: true"
             + " (path=" + providerPath + ", name=" + providerName + ", sdfLib=" + sdfLibPath + ")");
         return true;
@@ -189,6 +227,69 @@ public class ProviderTest extends BaseTest {
         int ret = libc.setenv(SDF_LIB_PATH_ENV, sdfLibPath, 1);
         if (ret != 0) {
             throw new IllegalStateException("Failed to set " + SDF_LIB_PATH_ENV + " for SDFP provider");
+        }
+    }
+
+    private static void loadProviderThroughBslParam() {
+        NativeLoader.load();
+        HitlsCrypto crypto = Native.load(resolveHitlsCryptoLibrary(), HitlsCrypto.class);
+        assertEquals("Provider load path should be set", CRYPT_SUCCESS,
+            crypto.CRYPT_EAL_ProviderSetLoadPath(null, providerPath));
+
+        PointerByReference mgrCtx = new PointerByReference();
+        LoadParams params = buildSdfLibPathParams();
+        assertEquals("SDFP provider should load with SDF library path parameter", CRYPT_SUCCESS,
+            crypto.CRYPT_EAL_ProviderLoad(null, BSL_SAL_LIB_FMT_LIBSO, providerName, params.pointer, mgrCtx));
+
+        assertEquals("Default provider should be disabled while SDFP tests run", CRYPT_SUCCESS,
+            crypto.CRYPT_EAL_ProviderUnload(null, BSL_SAL_LIB_FMT_OFF, DEFAULT_OPENHITLS_PROVIDER_NAME));
+        providerLoadedThroughBslParam = true;
+    }
+
+    private static void unloadProviderLoadedThroughBslParam() {
+        HitlsCrypto crypto = Native.load(resolveHitlsCryptoLibrary(), HitlsCrypto.class);
+        assertEquals("SDFP provider should unload", CRYPT_SUCCESS,
+            crypto.CRYPT_EAL_ProviderUnload(null, BSL_SAL_LIB_FMT_LIBSO, providerName));
+        assertEquals("Default provider should be restored after SDFP tests", CRYPT_SUCCESS,
+            crypto.CRYPT_EAL_ProviderLoad(null, BSL_SAL_LIB_FMT_OFF, DEFAULT_OPENHITLS_PROVIDER_NAME, null, null));
+        providerLoadedThroughBslParam = false;
+    }
+
+    private static String resolveHitlsCryptoLibrary() {
+        String nativePath = trimToNull(System.getProperty("openhitls.native.path"));
+        if (nativePath == null) {
+            return "hitls_crypto";
+        }
+        return new File(nativePath, "libhitls_crypto.so").getAbsolutePath();
+    }
+
+    private static LoadParams buildSdfLibPathParams() {
+        BslParam[] params = (BslParam[]) new BslParam().toArray(2);
+        byte[] pathBytes = sdfLibPath.getBytes(StandardCharsets.UTF_8);
+        Memory path = new Memory(pathBytes.length);
+        path.write(0, pathBytes, 0, pathBytes.length);
+
+        params[0].key = SDFP_PARAM_SDF_LIB_PATH;
+        params[0].valueType = BSL_PARAM_TYPE_OCTETS;
+        params[0].value = path;
+        params[0].valueLen = pathBytes.length;
+        params[0].useLen = 0;
+        params[0].write();
+        params[1].write();
+        return new LoadParams(params[0].getPointer(), params, path);
+    }
+
+    private static class LoadParams {
+        private final Pointer pointer;
+        @SuppressWarnings("unused")
+        private final BslParam[] params;
+        @SuppressWarnings("unused")
+        private final Memory path;
+
+        private LoadParams(Pointer pointer, BslParam[] params, Memory path) {
+            this.pointer = pointer;
+            this.params = params;
+            this.path = path;
         }
     }
 

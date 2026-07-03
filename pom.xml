@@ -30,6 +30,7 @@
         <openhitls.lib.dir>${openhitls.root}/build</openhitls.lib.dir>
         <openhitls.include.dir>${openhitls.root}/include</openhitls.include.dir>
         <openhitls.build.include.dir>${openhitls.root}/build/include</openhitls.build.include.dir>
+        <jni.java.home>${java.home}</jni.java.home>
     </properties>
 
     <profiles>
@@ -110,14 +111,58 @@
                             <copy todir="${project.build.directory}/native" flatten="true">
                                 <fileset dir="${openhitls.lib.dir}" includes="libhitls_*.so"/>
                             </copy>
+                            <condition property="jni.platform.include" value="darwin">
+                                <os family="mac"/>
+                            </condition>
+                            <condition property="jni.platform.include" value="win32">
+                                <os family="windows"/>
+                            </condition>
+                            <condition property="jni.platform.include" value="linux">
+                                <os family="unix"/>
+                            </condition>
+                            <condition property="resolved.jni.java.home" value="${jni.java.home}">
+                                <available file="${jni.java.home}/include/jni.h" type="file"/>
+                            </condition>
+                            <condition property="resolved.jni.java.home" value="${jni.java.home}/..">
+                                <and>
+                                    <not>
+                                        <isset property="resolved.jni.java.home"/>
+                                    </not>
+                                    <available file="${jni.java.home}/../include/jni.h" type="file"/>
+                                </and>
+                            </condition>
+                            <condition property="resolved.jni.java.home" value="${env.JAVA_HOME}">
+                                <and>
+                                    <not>
+                                        <isset property="resolved.jni.java.home"/>
+                                    </not>
+                                    <isset property="env.JAVA_HOME"/>
+                                    <available file="${env.JAVA_HOME}/include/jni.h" type="file"/>
+                                </and>
+                            </condition>
+                            <fail message="JNI headers not found. Set JAVA_HOME to a JDK root or pass -Djni.java.home=/path/to/jdk. Checked jni.java.home='${jni.java.home}', jni.java.home/.., and JAVA_HOME='${env.JAVA_HOME}'.">
+                                <condition>
+                                    <not>
+                                        <isset property="resolved.jni.java.home"/>
+                                    </not>
+                                </condition>
+                            </fail>
+                            <fail message="JNI platform header jni_md.h not found under '${resolved.jni.java.home}/include/${jni.platform.include}'. Set -Djni.java.home=/path/to/jdk or check this OS mapping.">
+                                <condition>
+                                    <not>
+                                        <available file="${resolved.jni.java.home}/include/${jni.platform.include}/jni_md.h" type="file"/>
+                                    </not>
+                                </condition>
+                            </fail>
+                            <echo level="info" message="Using JNI headers from ${resolved.jni.java.home}/include and ${resolved.jni.java.home}/include/${jni.platform.include}"/>
                             <!-- Compile JNI code -->
                             <exec executable="gcc" failonerror="true">
                                 <arg value="-c"/>
                                 <arg value="-fPIC"/>
                                 <arg value="-Wall"/>
                                 <arg value="-Werror"/>
-                                <arg value="-I${java.home}/include"/>
-                                <arg value="-I${java.home}/include/linux"/>
+                                <arg value="-I${resolved.jni.java.home}/include"/>
+                                <arg value="-I${resolved.jni.java.home}/include/${jni.platform.include}"/>
                                 <arg value="-I${basedir}/src/main/native"/>
                                 <arg value="-I${openhitls.include.dir}"/>
                                 <arg value="-I${openhitls.include.dir}/bsl"/>
