@@ -90,11 +90,14 @@ public class SymmetricCipherImpl extends NativeResource {
      * @param aad the additional authenticated data
      */
     public void updateAAD(byte[] aad, int offset, int len) {
-        if (aad == null || len == 0) {
-            return;
+        if (aad == null) {
+            throw new IllegalArgumentException("AAD data cannot be null");
         }
-        if (offset < 0 || len < 0 || offset + len > aad.length) {
+        if (offset < 0 || len < 0 || offset > aad.length || len > aad.length - offset) {
             throw new IllegalArgumentException("Invalid offset or length");
+        }
+        if (len == 0) {
+            return;
         }
         if (!"GCM".equals(this.cipherMode)) {
             throw new IllegalStateException("AAD can only be used in GCM mode");

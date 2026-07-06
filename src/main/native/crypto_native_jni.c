@@ -17,6 +17,8 @@
 #include <crypto/crypt_eal_md.h>
 #include <crypto/crypt_eal_rand.h>
 #include <crypto/crypt_params_key.h>
+#include <crypto/crypt_types.h>
+#include <bsl/bsl_params.h>
 #include <bsl/bsl_sal.h>
 #include <bsl/bsl_err.h>
 #include <pthread.h>
@@ -58,6 +60,24 @@ static void throwExceptionWithError(JNIEnv *env, const char *exceptionClass, con
         (*env)->ThrowNew(env, cls, errorMsg);
     }
     (*env)->DeleteLocalRef(env, cls);
+}
+
+static bool isRsaVerificationFailure(int32_t errorCode) {
+    return errorCode == CRYPT_RSA_NOR_VERIFY_FAIL ||
+        errorCode == CRYPT_RSA_ERR_PSS_SALT_LEN ||
+        errorCode == CRYPT_RSA_ERR_PSS_SALT_DATA ||
+        errorCode == CRYPT_RSA_ERR_INPUT_VALUE;
+}
+
+static int32_t configureRsaPss(CRYPT_EAL_PkeyCtx *ctx, int32_t hashAlg,
+    int32_t mgf1HashAlg, int32_t saltLength) {
+    BSL_Param pssParam[4] = {
+        {CRYPT_PARAM_RSA_MD_ID, BSL_PARAM_TYPE_INT32, &hashAlg, sizeof(hashAlg), 0},
+        {CRYPT_PARAM_RSA_MGF1_ID, BSL_PARAM_TYPE_INT32, &mgf1HashAlg, sizeof(mgf1HashAlg), 0},
+        {CRYPT_PARAM_RSA_SALTLEN, BSL_PARAM_TYPE_INT32, &saltLength, sizeof(saltLength), 0},
+        BSL_PARAM_END
+    };
+    return CRYPT_EAL_PkeyCtrl(ctx, CRYPT_CTRL_SET_RSA_EMSA_PSS, pssParam, 0);
 }
 
 static jbyteArray newByteArrayFromData(JNIEnv *env, const uint8_t *data, uint32_t dataLen) {
@@ -389,6 +409,21 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_message
     
     (*env)->SetByteArrayRegion(env, result, 0, digestLen, (jbyte *)hash);
     return result;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestReset
+  (JNIEnv *env, jclass cls, jlong contextPtr) {
+    (void)cls;
+    CRYPT_EAL_MdCTX *ctx = (CRYPT_EAL_MdCTX *)contextPtr;
+    if (ctx == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid context");
+        return;
+    }
+
+    int ret = CRYPT_EAL_MdInit(ctx);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to reset message digest", ret);
+    }
 }
 
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestFree
@@ -2764,15 +2799,136 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerify
     (*env)->ReleaseByteArrayElements(env, signature, signBytes, JNI_ABORT);
 
     // Handle normal verification failures without throwing exceptions
-    if (ret == CRYPT_RSA_NOR_VERIFY_FAIL || 
-        ret == CRYPT_RSA_ERR_PSS_SALT_DATA ||
-        ret == CRYPT_RSA_ERR_INPUT_VALUE) {
+    if (isRsaVerificationFailure(ret)) {
         return JNI_FALSE;
     }
 
     // Only throw exceptions for other errors that indicate real problems
     if (ret != CRYPT_SUCCESS) {
         throwExceptionWithError(env, "java/security/SignatureException", "Failed to verify signature", ret);
+        return JNI_FALSE;
+    }
+
+    return JNI_TRUE;
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSignDigest
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray digest, jstring digestAlgorithm) {
+    if (nativeRef == 0 || digest == NULL || digestAlgorithm == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid arguments");
+        return NULL;
+    }
+
+    const char *algorithm = (*env)->GetStringUTFChars(env, digestAlgorithm, NULL);
+    if (algorithm == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get digest algorithm");
+        return NULL;
+    }
+    int hashAlg = getHashAlgorithmId(env, algorithm);
+    (*env)->ReleaseStringUTFChars(env, digestAlgorithm, algorithm);
+    if (hashAlg == -1) {
+        return NULL;
+    }
+
+    JByteArrayRef digestRef = {0};
+    if (!getByteArrayRef(env, digest, &digestRef, "Failed to get digest bytes", true)) {
+        return NULL;
+    }
+
+    int32_t pkcsv15 = hashAlg;
+    int ret = CRYPT_EAL_PkeyCtrl((CRYPT_EAL_PkeyCtx *)nativeRef,
+        CRYPT_CTRL_SET_RSA_EMSA_PKCSV15, &pkcsv15, sizeof(pkcsv15));
+    if (ret != CRYPT_SUCCESS) {
+        releaseByteArrayRef(env, &digestRef, true);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA padding", ret);
+        return NULL;
+    }
+
+    uint32_t signLen = CRYPT_EAL_PkeyGetSignLen((CRYPT_EAL_PkeyCtx *)nativeRef);
+    if (signLen == 0) {
+        releaseByteArrayRef(env, &digestRef, true);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get signature length");
+        return NULL;
+    }
+
+    uint8_t *signature = (uint8_t *)malloc(signLen);
+    if (signature == NULL) {
+        releaseByteArrayRef(env, &digestRef, true);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate memory for signature");
+        return NULL;
+    }
+
+    ret = CRYPT_EAL_PkeySignData((CRYPT_EAL_PkeyCtx *)nativeRef,
+        (const uint8_t *)digestRef.bytes, digestRef.len, signature, &signLen);
+    releaseByteArrayRef(env, &digestRef, true);
+
+    if (ret != CRYPT_SUCCESS) {
+        free(signature);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to sign digest", ret);
+        return NULL;
+    }
+
+    jbyteArray result = (*env)->NewByteArray(env, signLen);
+    if (result == NULL) {
+        free(signature);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to create result array");
+        return NULL;
+    }
+
+    (*env)->SetByteArrayRegion(env, result, 0, signLen, (jbyte *)signature);
+    free(signature);
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerifyDigest
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray digest, jbyteArray signature, jstring digestAlgorithm) {
+    if (nativeRef == 0 || digest == NULL || signature == NULL || digestAlgorithm == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid arguments");
+        return JNI_FALSE;
+    }
+
+    const char *algorithm = (*env)->GetStringUTFChars(env, digestAlgorithm, NULL);
+    if (algorithm == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get digest algorithm");
+        return JNI_FALSE;
+    }
+    int hashAlg = getHashAlgorithmId(env, algorithm);
+    (*env)->ReleaseStringUTFChars(env, digestAlgorithm, algorithm);
+    if (hashAlg == -1) {
+        return JNI_FALSE;
+    }
+
+    JByteArrayRef digestRef = {0};
+    JByteArrayRef signatureRef = {0};
+    if (!getByteArrayRef(env, digest, &digestRef, "Failed to get digest bytes", true) ||
+            !getByteArrayRef(env, signature, &signatureRef, "Failed to get signature bytes", true)) {
+        releaseByteArrayRef(env, &digestRef, true);
+        releaseByteArrayRef(env, &signatureRef, false);
+        return JNI_FALSE;
+    }
+
+    int32_t pkcsv15 = hashAlg;
+    int ret = CRYPT_EAL_PkeyCtrl((CRYPT_EAL_PkeyCtx *)nativeRef,
+        CRYPT_CTRL_SET_RSA_EMSA_PKCSV15, &pkcsv15, sizeof(pkcsv15));
+    if (ret != CRYPT_SUCCESS) {
+        releaseByteArrayRef(env, &digestRef, true);
+        releaseByteArrayRef(env, &signatureRef, false);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set RSA padding", ret);
+        return JNI_FALSE;
+    }
+
+    ret = CRYPT_EAL_PkeyVerifyData((CRYPT_EAL_PkeyCtx *)nativeRef,
+        (const uint8_t *)digestRef.bytes, digestRef.len,
+        (const uint8_t *)signatureRef.bytes, signatureRef.len);
+
+    releaseByteArrayRef(env, &digestRef, true);
+    releaseByteArrayRef(env, &signatureRef, false);
+
+    if (isRsaVerificationFailure(ret)) {
+        return JNI_FALSE;
+    }
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to verify digest signature", ret);
         return JNI_FALSE;
     }
 
@@ -3007,7 +3163,6 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSign
         throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Input parameters cannot be null");
         return NULL;
     }
-
     const char* digestAlgStr = (*env)->GetStringUTFChars(env, digestAlgorithm, NULL);
     const char* mgf1AlgStr = (*env)->GetStringUTFChars(env, mgf1Algorithm, NULL);
     jbyte* dataBytes = (*env)->GetByteArrayElements(env, data, NULL);
@@ -3039,14 +3194,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSign
         return NULL;
     }
 
-    BSL_Param pssParam[4] = {
-        {CRYPT_PARAM_RSA_MD_ID, BSL_PARAM_TYPE_INT32, &hashAlg, sizeof(hashAlg), 0},
-        {CRYPT_PARAM_RSA_MGF1_ID, BSL_PARAM_TYPE_INT32, &mgf1HashAlg, sizeof(mgf1HashAlg), 0},
-        {CRYPT_PARAM_RSA_SALTLEN, BSL_PARAM_TYPE_INT32, &saltLength, sizeof(saltLength), 0},
-        BSL_PARAM_END
-    };
-
-    int ret = CRYPT_EAL_PkeyCtrl((CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_CTRL_SET_RSA_EMSA_PSS, pssParam, 0);
+    int ret = configureRsaPss((CRYPT_EAL_PkeyCtx *)nativeRef, hashAlg, mgf1HashAlg, saltLength);
     if (ret != CRYPT_SUCCESS) {
         char errMsg[256];
         snprintf(errMsg, sizeof(errMsg), "Failed to set PSS parameters (hash: %d, mgf1: %d, salt: %d)", 
@@ -3107,7 +3255,6 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerify
         throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Input parameters cannot be null");
         return JNI_FALSE;
     }
-
     const char* digestAlgStr = (*env)->GetStringUTFChars(env, digestAlgorithm, NULL);
     const char* mgf1AlgStr = (*env)->GetStringUTFChars(env, mgf1Algorithm, NULL);
     jbyte* dataBytes = (*env)->GetByteArrayElements(env, data, NULL);
@@ -3144,14 +3291,7 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerify
         return JNI_FALSE;
     }
 
-    BSL_Param pssParam[4] = {
-        {CRYPT_PARAM_RSA_MD_ID, BSL_PARAM_TYPE_INT32, &hashAlg, sizeof(hashAlg), 0},
-        {CRYPT_PARAM_RSA_MGF1_ID, BSL_PARAM_TYPE_INT32, &mgf1HashAlg, sizeof(mgf1HashAlg), 0},
-        {CRYPT_PARAM_RSA_SALTLEN, BSL_PARAM_TYPE_INT32, &saltLength, sizeof(saltLength), 0},
-        BSL_PARAM_END
-    };
-
-    int ret = CRYPT_EAL_PkeyCtrl((CRYPT_EAL_PkeyCtx *)nativeRef, CRYPT_CTRL_SET_RSA_EMSA_PSS, pssParam, 0);
+    int ret = configureRsaPss((CRYPT_EAL_PkeyCtx *)nativeRef, hashAlg, mgf1HashAlg, saltLength);
     if (ret != CRYPT_SUCCESS) {
         (*env)->ReleaseStringUTFChars(env, digestAlgorithm, digestAlgStr);
         (*env)->ReleaseStringUTFChars(env, mgf1Algorithm, mgf1AlgStr);
@@ -3169,8 +3309,153 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerify
     (*env)->ReleaseByteArrayElements(env, data, dataBytes, JNI_ABORT);
     (*env)->ReleaseByteArrayElements(env, signature, signBytes, JNI_ABORT);
 
+    if (isRsaVerificationFailure(ret)) {
+        return JNI_FALSE;
+    }
     if (ret != CRYPT_SUCCESS) {
         throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to verify signature", ret);
+        return JNI_FALSE;
+    }
+
+    return JNI_TRUE;
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSignDigestPSS
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray digest, jstring digestAlgorithm,
+   jstring mgf1Algorithm, jint saltLength, jint trailerField) {
+    if (nativeRef == 0) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");
+        return NULL;
+    }
+    if (digest == NULL || digestAlgorithm == NULL || mgf1Algorithm == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Input parameters cannot be null");
+        return NULL;
+    }
+    const char* digestAlgStr = (*env)->GetStringUTFChars(env, digestAlgorithm, NULL);
+    const char* mgf1AlgStr = (*env)->GetStringUTFChars(env, mgf1Algorithm, NULL);
+    if (digestAlgStr == NULL || mgf1AlgStr == NULL) {
+        if (digestAlgStr) (*env)->ReleaseStringUTFChars(env, digestAlgorithm, digestAlgStr);
+        if (mgf1AlgStr) (*env)->ReleaseStringUTFChars(env, mgf1Algorithm, mgf1AlgStr);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to get native resources");
+        return NULL;
+    }
+
+    int hashAlg = getHashAlgorithmId(env, digestAlgStr);
+    int mgf1HashAlg = getHashAlgorithmId(env, mgf1AlgStr);
+    (*env)->ReleaseStringUTFChars(env, digestAlgorithm, digestAlgStr);
+    (*env)->ReleaseStringUTFChars(env, mgf1Algorithm, mgf1AlgStr);
+    if (hashAlg == -1 || mgf1HashAlg == -1) {
+        return NULL;
+    }
+
+    JByteArrayRef digestRef = {0};
+    if (!getByteArrayRef(env, digest, &digestRef, "Failed to get digest bytes", true)) {
+        return NULL;
+    }
+
+    int ret = configureRsaPss((CRYPT_EAL_PkeyCtx *)nativeRef, hashAlg, mgf1HashAlg, saltLength);
+    if (ret != CRYPT_SUCCESS) {
+        releaseByteArrayRef(env, &digestRef, true);
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to set PSS parameters", ret);
+        return NULL;
+    }
+
+    uint32_t signLen = CRYPT_EAL_PkeyGetSignLen((CRYPT_EAL_PkeyCtx *)nativeRef);
+    if (signLen == 0) {
+        releaseByteArrayRef(env, &digestRef, true);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get signature length");
+        return NULL;
+    }
+
+    uint8_t *signature = (uint8_t *)malloc(signLen);
+    if (signature == NULL) {
+        releaseByteArrayRef(env, &digestRef, true);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate memory for signature");
+        return NULL;
+    }
+
+    ret = CRYPT_EAL_PkeySignData((CRYPT_EAL_PkeyCtx *)nativeRef,
+        (const uint8_t *)digestRef.bytes, digestRef.len, signature, &signLen);
+    releaseByteArrayRef(env, &digestRef, true);
+
+    if (ret != CRYPT_SUCCESS) {
+        free(signature);
+        char errMsg[256];
+        snprintf(errMsg, sizeof(errMsg), "Failed to sign digest (hash: %d, mgf1: %d, salt: %d)",
+                hashAlg, mgf1HashAlg, saltLength);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, errMsg, ret);
+        return NULL;
+    }
+
+    jbyteArray result = (*env)->NewByteArray(env, signLen);
+    if (result == NULL) {
+        free(signature);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to create result array");
+        return NULL;
+    }
+
+    (*env)->SetByteArrayRegion(env, result, 0, signLen, (jbyte *)signature);
+    free(signature);
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerifyDigestPSS
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray digest, jbyteArray signature,
+   jstring digestAlgorithm, jstring mgf1Algorithm, jint saltLength, jint trailerField) {
+    if (nativeRef == 0) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Invalid RSA context");
+        return JNI_FALSE;
+    }
+    if (digest == NULL || signature == NULL || digestAlgorithm == NULL || mgf1Algorithm == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Input parameters cannot be null");
+        return JNI_FALSE;
+    }
+    const char* digestAlgStr = (*env)->GetStringUTFChars(env, digestAlgorithm, NULL);
+    const char* mgf1AlgStr = (*env)->GetStringUTFChars(env, mgf1Algorithm, NULL);
+    if (digestAlgStr == NULL || mgf1AlgStr == NULL) {
+        if (digestAlgStr) (*env)->ReleaseStringUTFChars(env, digestAlgorithm, digestAlgStr);
+        if (mgf1AlgStr) (*env)->ReleaseStringUTFChars(env, mgf1Algorithm, mgf1AlgStr);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to get native resources");
+        return JNI_FALSE;
+    }
+
+    int hashAlg = getHashAlgorithmId(env, digestAlgStr);
+    int mgf1HashAlg = getHashAlgorithmId(env, mgf1AlgStr);
+    (*env)->ReleaseStringUTFChars(env, digestAlgorithm, digestAlgStr);
+    (*env)->ReleaseStringUTFChars(env, mgf1Algorithm, mgf1AlgStr);
+    if (hashAlg == -1 || mgf1HashAlg == -1) {
+        return JNI_FALSE;
+    }
+
+    JByteArrayRef digestRef = {0};
+    JByteArrayRef signatureRef = {0};
+    if (!getByteArrayRef(env, digest, &digestRef, "Failed to get digest bytes", true) ||
+            !getByteArrayRef(env, signature, &signatureRef, "Failed to get signature bytes", true)) {
+        releaseByteArrayRef(env, &digestRef, true);
+        releaseByteArrayRef(env, &signatureRef, false);
+        return JNI_FALSE;
+    }
+
+    int ret = configureRsaPss((CRYPT_EAL_PkeyCtx *)nativeRef, hashAlg, mgf1HashAlg, saltLength);
+    if (ret != CRYPT_SUCCESS) {
+        releaseByteArrayRef(env, &digestRef, true);
+        releaseByteArrayRef(env, &signatureRef, false);
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to set PSS parameters", ret);
+        return JNI_FALSE;
+    }
+
+    ret = CRYPT_EAL_PkeyVerifyData((CRYPT_EAL_PkeyCtx *)nativeRef,
+        (const uint8_t *)digestRef.bytes, digestRef.len,
+        (const uint8_t *)signatureRef.bytes, signatureRef.len);
+
+    releaseByteArrayRef(env, &digestRef, true);
+    releaseByteArrayRef(env, &signatureRef, false);
+
+    if (isRsaVerificationFailure(ret)) {
+        return JNI_FALSE;
+    }
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to verify digest signature", ret);
         return JNI_FALSE;
     }
 
@@ -5143,23 +5428,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_jce_provider_ProviderConfig_unl
 #define CRYPT_LMOTS_SHA256_N32_W8 0x00000004u
 #endif
 
-#ifndef CRYPT_CTRL_LMS_SET_TYPE
-#define CRYPT_CTRL_LMS_SET_TYPE       900
-#define CRYPT_CTRL_LMS_SET_OTS_TYPE   901
-#define CRYPT_CTRL_LMS_GET_PUBKEY_LEN 902
-#define CRYPT_CTRL_LMS_GET_PRVKEY_LEN 903
-#define CRYPT_CTRL_LMS_GET_SIG_LEN    904
-#endif
-
-#ifndef CRYPT_CTRL_HSS_SET_LEVELS
-#define CRYPT_CTRL_HSS_SET_LEVELS     950
-#define CRYPT_CTRL_HSS_SET_LMS_TYPE   951
-#define CRYPT_CTRL_HSS_SET_OTS_TYPE   952
-#define CRYPT_CTRL_HSS_GET_PUBKEY_LEN 953
-#define CRYPT_CTRL_HSS_GET_PRVKEY_LEN 954
-#define CRYPT_CTRL_HSS_GET_SIG_LEN    955
-#endif
-
 #define HBS_XMSS_PUB_BLOB_VERSION 1u
 #define HBS_XMSS_PRV_BLOB_VERSION 1u
 #define HBS_XMSS_PUB_HEADER_LEN 12u
@@ -5169,17 +5437,11 @@ static int getLmsTypeId(const char *typeName) {
     if (typeName == NULL) {
         return -1;
     }
-    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H5") == 0) {
-        return CRYPT_LMS_SHA256_M32_H5;
-    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H10") == 0) {
-        return CRYPT_LMS_SHA256_M32_H10;
-    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H15") == 0) {
-        return CRYPT_LMS_SHA256_M32_H15;
-    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H20") == 0) {
-        return CRYPT_LMS_SHA256_M32_H20;
-    } else if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H25") == 0) {
-        return CRYPT_LMS_SHA256_M32_H25;
-    }
+    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H5") == 0) return CRYPT_LMS_SHA256_M32_H5;
+    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H10") == 0) return CRYPT_LMS_SHA256_M32_H10;
+    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H15") == 0) return CRYPT_LMS_SHA256_M32_H15;
+    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H20") == 0) return CRYPT_LMS_SHA256_M32_H20;
+    if (strcmp(typeName, "CRYPT_LMS_SHA256_M32_H25") == 0) return CRYPT_LMS_SHA256_M32_H25;
     return -1;
 }
 
@@ -5187,15 +5449,10 @@ static int getLmotsTypeId(const char *typeName) {
     if (typeName == NULL) {
         return -1;
     }
-    if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W1") == 0) {
-        return CRYPT_LMOTS_SHA256_N32_W1;
-    } else if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W2") == 0) {
-        return CRYPT_LMOTS_SHA256_N32_W2;
-    } else if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W4") == 0) {
-        return CRYPT_LMOTS_SHA256_N32_W4;
-    } else if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W8") == 0) {
-        return CRYPT_LMOTS_SHA256_N32_W8;
-    }
+    if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W1") == 0) return CRYPT_LMOTS_SHA256_N32_W1;
+    if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W2") == 0) return CRYPT_LMOTS_SHA256_N32_W2;
+    if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W4") == 0) return CRYPT_LMOTS_SHA256_N32_W4;
+    if (strcmp(typeName, "CRYPT_LMOTS_SHA256_N32_W8") == 0) return CRYPT_LMOTS_SHA256_N32_W8;
     return -1;
 }
 
@@ -5339,235 +5596,86 @@ static jobjectArray hbsNewByteArrayPair(JNIEnv *env, jbyteArray first, jbyteArra
     return result;
 }
 
-static int configureLmsCtx(CRYPT_EAL_PkeyCtx *pkey, uint32_t lmsType, uint32_t otsType) {
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_LMS_SET_TYPE, &lmsType, sizeof(lmsType));
-    if (ret != CRYPT_SUCCESS) {
-        return ret;
+static int configureHssLmsCtx(CRYPT_EAL_PkeyCtx *pkey, uint32_t levels,
+    const uint32_t *lmsTypes, const uint32_t *otsTypes) {
+    static const int32_t lmsKeys[] = {
+        CRYPT_PARAM_HSS_LEVEL1_LMS_TYPE,
+        CRYPT_PARAM_HSS_LEVEL2_LMS_TYPE,
+        CRYPT_PARAM_HSS_LEVEL3_LMS_TYPE
+    };
+    static const int32_t otsKeys[] = {
+        CRYPT_PARAM_HSS_LEVEL1_OTS_TYPE,
+        CRYPT_PARAM_HSS_LEVEL2_OTS_TYPE,
+        CRYPT_PARAM_HSS_LEVEL3_OTS_TYPE
+    };
+    if (levels < 1 || levels > 3) {
+        return CRYPT_INVALID_ARG;
     }
-    return CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_LMS_SET_OTS_TYPE, &otsType, sizeof(otsType));
-}
 
-static int configureHssCtx(CRYPT_EAL_PkeyCtx *pkey, uint32_t levels, const uint32_t *lmsTypes, const uint32_t *otsTypes) {
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_LEVELS, &levels, sizeof(levels));
-    if (ret != CRYPT_SUCCESS) {
-        return ret;
-    }
+    BSL_Param params[8] = {0};
+    size_t pos = 0;
+    params[pos++] = (BSL_Param){CRYPT_PARAM_HSS_LEVEL, BSL_PARAM_TYPE_UINT32, &levels, sizeof(levels), 0};
     for (uint32_t i = 0; i < levels; i++) {
-        uint32_t lmsParam[2] = {i, lmsTypes[i]};
-        uint32_t otsParam[2] = {i, otsTypes[i]};
-        ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_LMS_TYPE, lmsParam, sizeof(lmsParam));
-        if (ret != CRYPT_SUCCESS) {
-            return ret;
-        }
-        ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_OTS_TYPE, otsParam, sizeof(otsParam));
-        if (ret != CRYPT_SUCCESS) {
-            return ret;
-        }
+        params[pos++] = (BSL_Param){lmsKeys[i], BSL_PARAM_TYPE_UINT32, (void *)&lmsTypes[i], sizeof(lmsTypes[i]), 0};
+        params[pos++] = (BSL_Param){otsKeys[i], BSL_PARAM_TYPE_UINT32, (void *)&otsTypes[i], sizeof(otsTypes[i]), 0};
     }
-    return CRYPT_SUCCESS;
+    return CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_HSS_SET_PARAM, params, 0);
 }
 
-static jbyteArray exportRawHbsKey(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, int ctrlLenCmd, int paramKey, bool privateKey) {
-    int ret;
-    uint32_t keyLen = 0;
-    ret = CRYPT_EAL_PkeyCtrl(pkey, ctrlLenCmd, &keyLen, sizeof(keyLen));
+static CRYPT_EAL_PkeyCtx *createHssLmsContext(JNIEnv *env, uint32_t levels,
+    const uint32_t *lmsTypes, const uint32_t *otsTypes) {
+    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_HSS_LMS);
+    if (pkey == NULL) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create HSS_LMS context");
+        return NULL;
+    }
+    int ret = configureHssLmsCtx(pkey, levels, lmsTypes, otsTypes);
     if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get key length", ret);
+        CRYPT_EAL_PkeyFreeCtx(pkey);
+        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to configure HSS_LMS context", ret);
         return NULL;
     }
-    uint8_t *keyBuf = malloc(keyLen);
-    if (keyBuf == NULL) {
-        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate key buffer");
-        return NULL;
-    }
+    return pkey;
+}
+
+static int setHssLmsPublicKey(CRYPT_EAL_PkeyCtx *pkey, const uint8_t *publicKey, uint32_t publicKeyLen) {
     BSL_Param keyParam[2] = {0};
-    BSL_PARAM_InitValue(&keyParam[0], paramKey, BSL_PARAM_TYPE_OCTETS, keyBuf, keyLen);
-    ret = privateKey ? CRYPT_EAL_PkeyGetPrvEx(pkey, keyParam) : CRYPT_EAL_PkeyGetPubEx(pkey, keyParam);
-    if (ret != CRYPT_SUCCESS) {
-        if (privateKey) {
-            secureZeroFree(keyBuf, keyLen);
-        } else {
-            free(keyBuf);
-        }
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to export key", ret);
-        return NULL;
-    }
-    uint32_t useLen = keyParam[0].useLen != 0 ? keyParam[0].useLen : keyLen;
-    jbyteArray result = hbsNewByteArray(env, keyBuf, useLen);
-    if (privateKey) {
-        secureZeroFree(keyBuf, keyLen);
-    } else {
-        free(keyBuf);
-    }
-    return result;
+    BSL_PARAM_InitValue(&keyParam[0], CRYPT_PARAM_HSS_PUBKEY, BSL_PARAM_TYPE_OCTETS,
+        (void *)publicKey, publicKeyLen);
+    return CRYPT_EAL_PkeySetPubEx(pkey, keyParam);
 }
 
-static int importRawHbsKey(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray keyArray, int paramKey, bool privateKey) {
+static int setHssLmsPublicKeyFromArray(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray publicKey) {
     JByteArrayRef keyRef = {0};
-    if (!getByteArrayRef(env, keyArray, &keyRef, "Failed to get key bytes", true)) {
+    if (!getByteArrayRef(env, publicKey, &keyRef, "Failed to get HSS public key bytes", true)) {
         return -1;
     }
-    BSL_Param keyParam[2] = {0};
-    BSL_PARAM_InitValue(&keyParam[0], paramKey, BSL_PARAM_TYPE_OCTETS, keyRef.bytes, keyRef.len);
-    int ret = privateKey ? CRYPT_EAL_PkeySetPrvEx(pkey, keyParam) : CRYPT_EAL_PkeySetPubEx(pkey, keyParam);
-    if (privateKey) {
-        releaseByteArrayRef(env, &keyRef, true);
-    } else {
-        releaseByteArrayRef(env, &keyRef, false);
-    }
+    int ret = setHssLmsPublicKey(pkey, (const uint8_t *)keyRef.bytes, keyRef.len);
+    releaseByteArrayRef(env, &keyRef, false);
     return ret;
 }
 
-static jobjectArray rawHbsGenerateKeyPair(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey,
-    int pubLenCmd, int prvLenCmd, int pubParam, int prvParam) {
-    int ret = CRYPT_EAL_PkeyGen(pkey);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to generate key pair", ret);
-        return NULL;
-    }
-    jbyteArray publicKey = exportRawHbsKey(env, pkey, pubLenCmd, pubParam, false);
-    if (publicKey == NULL) {
-        return NULL;
-    }
-    jbyteArray privateKey = exportRawHbsKey(env, pkey, prvLenCmd, prvParam, true);
-    if (privateKey == NULL) {
-        return NULL;
-    }
-    return hbsNewByteArrayPair(env, publicKey, privateKey);
-}
-
-static jobjectArray rawHbsSignAndExportState(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray data,
-    jint hashAlg, int sigLenCmd, int prvLenCmd, int prvParam) {
-    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
-    if (inputData == NULL) {
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
-        return NULL;
-    }
-    jsize inputLen = (*env)->GetArrayLength(env, data);
-    uint32_t signLen = 0;
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, sigLenCmd, &signLen, sizeof(signLen));
-    if (ret != CRYPT_SUCCESS) {
-        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to get signature length", ret);
-        return NULL;
-    }
-    uint8_t *signBuf = malloc(signLen);
-    if (signBuf == NULL) {
-        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
-        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate signature buffer");
-        return NULL;
-    }
-    ret = CRYPT_EAL_PkeySign(pkey, getMdId(hashAlg), (uint8_t *)inputData, (uint32_t)inputLen, signBuf, &signLen);
-    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
-    if (ret != CRYPT_SUCCESS) {
-        free(signBuf);
-        throwExceptionWithError(env, SIGNATURE_EXCEPTION, "Failed to sign data", ret);
-        return NULL;
-    }
-    jbyteArray signature = hbsNewByteArray(env, signBuf, signLen);
-    free(signBuf);
-    if (signature == NULL) {
-        return NULL;
-    }
-    jbyteArray privateKey = exportRawHbsKey(env, pkey, prvLenCmd, prvParam, true);
-    if (privateKey == NULL) {
-        return NULL;
-    }
-    return hbsNewByteArrayPair(env, signature, privateKey);
-}
-
-static jboolean rawHbsVerify(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray data, jbyteArray signature, jint hashAlg) {
-    jbyte *inputData = (*env)->GetByteArrayElements(env, data, NULL);
-    if (inputData == NULL) {
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input data");
-        return JNI_FALSE;
-    }
-    jbyte *signData = (*env)->GetByteArrayElements(env, signature, NULL);
-    if (signData == NULL) {
-        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get signature data");
-        return JNI_FALSE;
-    }
-    int ret = CRYPT_EAL_PkeyVerify(pkey, getMdId(hashAlg),
-        (uint8_t *)inputData, (uint32_t)(*env)->GetArrayLength(env, data),
-        (uint8_t *)signData, (uint32_t)(*env)->GetArrayLength(env, signature));
-    (*env)->ReleaseByteArrayElements(env, signature, signData, JNI_ABORT);
-    (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+static jboolean verifyHssLmsBuffers(CRYPT_EAL_PkeyCtx *pkey, const uint8_t *data, uint32_t dataLen,
+    const uint8_t *signature, uint32_t signatureLen) {
+    int ret = CRYPT_EAL_PkeyVerify(pkey, 0, data, dataLen, signature, signatureLen);
     return ret == CRYPT_SUCCESS ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsCreateContext
-  (JNIEnv *env, jclass cls, jstring jlmsType, jstring jotsType) {
-    const char *lmsTypeName = (*env)->GetStringUTFChars(env, jlmsType, NULL);
-    const char *otsTypeName = (*env)->GetStringUTFChars(env, jotsType, NULL);
-    if (lmsTypeName == NULL || otsTypeName == NULL) {
-        if (lmsTypeName != NULL) (*env)->ReleaseStringUTFChars(env, jlmsType, lmsTypeName);
-        if (otsTypeName != NULL) (*env)->ReleaseStringUTFChars(env, jotsType, otsTypeName);
-        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get LMS parameter strings");
-        return 0;
+static jboolean verifyHssLmsArray(JNIEnv *env, CRYPT_EAL_PkeyCtx *pkey, jbyteArray data, jbyteArray signature) {
+    JByteArrayRef dataRef = {0};
+    JByteArrayRef sigRef = {0};
+    if (!getByteArrayRef(env, data, &dataRef, "Failed to get HSS input data", true)) {
+        return JNI_FALSE;
     }
-    int lmsType = getLmsTypeId(lmsTypeName);
-    int otsType = getLmotsTypeId(otsTypeName);
-    (*env)->ReleaseStringUTFChars(env, jlmsType, lmsTypeName);
-    (*env)->ReleaseStringUTFChars(env, jotsType, otsTypeName);
-    if (lmsType < 0 || otsType < 0) {
-        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported LMS parameter set");
-        return 0;
+    if (!getByteArrayRef(env, signature, &sigRef, "Failed to get HSS signature data", true)) {
+        releaseByteArrayRef(env, &dataRef, false);
+        return JNI_FALSE;
     }
-
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_LMS);
-    if (pkey == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create LMS context");
-        return 0;
-    }
-    int ret = configureLmsCtx(pkey, (uint32_t)lmsType, (uint32_t)otsType);
-    if (ret != CRYPT_SUCCESS) {
-        CRYPT_EAL_PkeyFreeCtx(pkey);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to configure LMS context", ret);
-        return 0;
-    }
-    return (jlong)pkey;
-}
-
-JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsGenerateKeyPair
-  (JNIEnv *env, jclass cls, jlong nativeRef) {
-    return rawHbsGenerateKeyPair(env, (CRYPT_EAL_PkeyCtx *)nativeRef,
-        CRYPT_CTRL_LMS_GET_PUBKEY_LEN, CRYPT_CTRL_LMS_GET_PRVKEY_LEN,
-        CRYPT_PARAM_LMS_PUBKEY, CRYPT_PARAM_LMS_PRVKEY);
-}
-
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSetPublicKey
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
-    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, publicKey, CRYPT_PARAM_LMS_PUBKEY, false);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set LMS public key", ret);
-    }
-}
-
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSetPrivateKey
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray privateKey) {
-    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, privateKey, CRYPT_PARAM_LMS_PRVKEY, true);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set LMS private key", ret);
-    }
-}
-
-JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSignAndExportState
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jint hashAlgorithm) {
-    return rawHbsSignAndExportState(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, hashAlgorithm,
-        CRYPT_CTRL_LMS_GET_SIG_LEN, CRYPT_CTRL_LMS_GET_PRVKEY_LEN, CRYPT_PARAM_LMS_PRVKEY);
-}
-
-JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsVerify
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature, jint hashAlgorithm) {
-    return rawHbsVerify(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature, hashAlgorithm);
-}
-
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsFreeContext
-  (JNIEnv *env, jclass cls, jlong nativeRef) {
-    if (nativeRef != 0) {
-        CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
-    }
+    jboolean result = verifyHssLmsBuffers(pkey, (const uint8_t *)dataRef.bytes, dataRef.len,
+        (const uint8_t *)sigRef.bytes, sigRef.len);
+    releaseByteArrayRef(env, &sigRef, false);
+    releaseByteArrayRef(env, &dataRef, false);
+    return result;
 }
 
 static int readHssTypeArray(JNIEnv *env, jobjectArray names, uint32_t *types, bool lmsTypes) {
@@ -5604,8 +5712,96 @@ static int readHssTypeArray(JNIEnv *env, jobjectArray names, uint32_t *types, bo
     return levels;
 }
 
+JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsCreateContext
+  (JNIEnv *env, jclass cls, jstring jlmsType, jstring jotsType) {
+    (void)cls;
+    const char *lmsTypeName = (*env)->GetStringUTFChars(env, jlmsType, NULL);
+    const char *otsTypeName = (*env)->GetStringUTFChars(env, jotsType, NULL);
+    if (lmsTypeName == NULL || otsTypeName == NULL) {
+        if (lmsTypeName != NULL) (*env)->ReleaseStringUTFChars(env, jlmsType, lmsTypeName);
+        if (otsTypeName != NULL) (*env)->ReleaseStringUTFChars(env, jotsType, otsTypeName);
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get LMS parameter strings");
+        return 0;
+    }
+    int lmsType = getLmsTypeId(lmsTypeName);
+    int otsType = getLmotsTypeId(otsTypeName);
+    (*env)->ReleaseStringUTFChars(env, jlmsType, lmsTypeName);
+    (*env)->ReleaseStringUTFChars(env, jotsType, otsTypeName);
+    if (lmsType < 0 || otsType < 0) {
+        throwException(env, NO_SUCH_ALGORITHM_EXCEPTION, "Unsupported LMS parameter set");
+        return 0;
+    }
+    uint32_t lmsTypes[1] = {(uint32_t)lmsType};
+    uint32_t otsTypes[1] = {(uint32_t)otsType};
+    return (jlong)createHssLmsContext(env, 1, lmsTypes, otsTypes);
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsSetPublicKey
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
+    (void)cls;
+    JByteArrayRef keyRef = {0};
+    if (!getByteArrayRef(env, publicKey, &keyRef, "Failed to get LMS public key bytes", true)) {
+        return;
+    }
+    uint32_t wrappedLen = keyRef.len + 4;
+    uint8_t *wrapped = malloc(wrappedLen);
+    if (wrapped == NULL) {
+        releaseByteArrayRef(env, &keyRef, false);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate LMS public key wrapper");
+        return;
+    }
+    putUint32Be(wrapped, 1);
+    memcpy(wrapped + 4, keyRef.bytes, keyRef.len);
+    int ret = setHssLmsPublicKey((CRYPT_EAL_PkeyCtx *)nativeRef, wrapped, wrappedLen);
+    free(wrapped);
+    releaseByteArrayRef(env, &keyRef, false);
+    if (ret != CRYPT_SUCCESS) {
+        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set LMS public key", ret);
+    }
+}
+
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsVerify
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature) {
+    (void)cls;
+    JByteArrayRef dataRef = {0};
+    JByteArrayRef sigRef = {0};
+    if (!getByteArrayRef(env, data, &dataRef, "Failed to get LMS input data", true)) {
+        return JNI_FALSE;
+    }
+    if (!getByteArrayRef(env, signature, &sigRef, "Failed to get LMS signature data", true)) {
+        releaseByteArrayRef(env, &dataRef, false);
+        return JNI_FALSE;
+    }
+    uint32_t wrappedLen = sigRef.len + 4;
+    uint8_t *wrapped = malloc(wrappedLen);
+    if (wrapped == NULL) {
+        releaseByteArrayRef(env, &sigRef, false);
+        releaseByteArrayRef(env, &dataRef, false);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate LMS signature wrapper");
+        return JNI_FALSE;
+    }
+    putUint32Be(wrapped, 0);
+    memcpy(wrapped + 4, sigRef.bytes, sigRef.len);
+    jboolean result = verifyHssLmsBuffers((CRYPT_EAL_PkeyCtx *)nativeRef,
+        (const uint8_t *)dataRef.bytes, dataRef.len, wrapped, wrappedLen);
+    free(wrapped);
+    releaseByteArrayRef(env, &sigRef, false);
+    releaseByteArrayRef(env, &dataRef, false);
+    return result;
+}
+
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_lmsFreeContext
+  (JNIEnv *env, jclass cls, jlong nativeRef) {
+    (void)env;
+    (void)cls;
+    if (nativeRef != 0) {
+        CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
+    }
+}
+
 JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssCreateContext
   (JNIEnv *env, jclass cls, jobjectArray jlmsTypes, jobjectArray jotsTypes) {
+    (void)cls;
     uint32_t lmsTypes[3] = {0};
     uint32_t otsTypes[3] = {0};
     int levels = readHssTypeArray(env, jlmsTypes, lmsTypes, true);
@@ -5620,57 +5816,28 @@ JNIEXPORT jlong JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssCreateCon
         throwException(env, INVALID_ALGORITHM_PARAMETER_EXCEPTION, "HSS LMS and OTS parameter counts differ");
         return 0;
     }
-
-    CRYPT_EAL_PkeyCtx *pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_HSS);
-    if (pkey == NULL) {
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to create HSS context");
-        return 0;
-    }
-    int ret = configureHssCtx(pkey, (uint32_t)levels, lmsTypes, otsTypes);
-    if (ret != CRYPT_SUCCESS) {
-        CRYPT_EAL_PkeyFreeCtx(pkey);
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to configure HSS context", ret);
-        return 0;
-    }
-    return (jlong)pkey;
-}
-
-JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssGenerateKeyPair
-  (JNIEnv *env, jclass cls, jlong nativeRef) {
-    return rawHbsGenerateKeyPair(env, (CRYPT_EAL_PkeyCtx *)nativeRef,
-        CRYPT_CTRL_HSS_GET_PUBKEY_LEN, CRYPT_CTRL_HSS_GET_PRVKEY_LEN,
-        CRYPT_PARAM_HSS_PUBKEY, CRYPT_PARAM_HSS_PRVKEY);
+    return (jlong)createHssLmsContext(env, (uint32_t)levels, lmsTypes, otsTypes);
 }
 
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssSetPublicKey
   (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray publicKey) {
-    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, publicKey, CRYPT_PARAM_HSS_PUBKEY, false);
+    (void)cls;
+    int ret = setHssLmsPublicKeyFromArray(env, (CRYPT_EAL_PkeyCtx *)nativeRef, publicKey);
     if (ret != CRYPT_SUCCESS) {
         throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set HSS public key", ret);
     }
 }
 
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssSetPrivateKey
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray privateKey) {
-    int ret = importRawHbsKey(env, (CRYPT_EAL_PkeyCtx *)nativeRef, privateKey, CRYPT_PARAM_HSS_PRVKEY, true);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, INVALID_KEY_EXCEPTION, "Failed to set HSS private key", ret);
-    }
-}
-
-JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssSignAndExportState
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jint hashAlgorithm) {
-    return rawHbsSignAndExportState(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, hashAlgorithm,
-        CRYPT_CTRL_HSS_GET_SIG_LEN, CRYPT_CTRL_HSS_GET_PRVKEY_LEN, CRYPT_PARAM_HSS_PRVKEY);
-}
-
 JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssVerify
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature, jint hashAlgorithm) {
-    return rawHbsVerify(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature, hashAlgorithm);
+  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray data, jbyteArray signature) {
+    (void)cls;
+    return verifyHssLmsArray(env, (CRYPT_EAL_PkeyCtx *)nativeRef, data, signature);
 }
 
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hssFreeContext
   (JNIEnv *env, jclass cls, jlong nativeRef) {
+    (void)env;
+    (void)cls;
     if (nativeRef != 0) {
         CRYPT_EAL_PkeyFreeCtx((CRYPT_EAL_PkeyCtx *)nativeRef);
     }

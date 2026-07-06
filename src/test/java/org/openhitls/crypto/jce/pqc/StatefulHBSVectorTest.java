@@ -1,5 +1,6 @@
 package org.openhitls.crypto.jce.pqc;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.security.KeyFactory;
@@ -285,23 +286,23 @@ public class StatefulHBSVectorTest extends BaseTest {
     private static final int XMSS_PUBLIC_BLOB_VERSION = 1;
 
     @Test
-    public void testLmsRfc8554VectorVerifies() throws Exception {
+    public void testLmsRfc8554VectorVerifiesAndRejectsTampering() throws Exception {
         LmsVector vector = LMS_RFC_8554;
         LMSParameterSpec params = new LMSParameterSpec(vector.lmsType, vector.otsType);
         PublicKey publicKey = KeyFactory.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME)
                 .generatePublic(new LMSPublicKeySpec(hex(vector.publicKey), params));
 
-        assertTrue(verify("LMS", publicKey, hex(vector.message), hex(vector.signature)));
+        assertVerificationBehavior("LMS", publicKey, hex(vector.message), hex(vector.signature));
     }
 
     @Test
-    public void testHssRfc8554VectorVerifies() throws Exception {
+    public void testHssRfc8554VectorVerifiesAndRejectsTampering() throws Exception {
         HssVector vector = HSS_RFC_8554;
         HSSParameterSpec params = new HSSParameterSpec(vector.lmsTypes, vector.otsTypes);
         PublicKey publicKey = KeyFactory.getInstance("HSS", HiTls4jProvider.PROVIDER_NAME)
                 .generatePublic(new HSSPublicKeySpec(hex(vector.publicKey), params));
 
-        assertTrue(verify("HSS", publicKey, hex(vector.message), hex(vector.signature)));
+        assertVerificationBehavior("HSS", publicKey, hex(vector.message), hex(vector.signature));
     }
 
     @Test
@@ -332,6 +333,19 @@ public class StatefulHBSVectorTest extends BaseTest {
         verifier.initVerify(publicKey);
         verifier.update(message);
         return verifier.verify(signature);
+    }
+
+    private static void assertVerificationBehavior(
+            String algorithm, PublicKey publicKey, byte[] message, byte[] signature) throws Exception {
+        assertTrue(verify(algorithm, publicKey, message, signature));
+
+        byte[] modifiedMessage = message.clone();
+        modifiedMessage[0] ^= 0x01;
+        assertFalse(verify(algorithm, publicKey, modifiedMessage, signature));
+
+        byte[] modifiedSignature = signature.clone();
+        modifiedSignature[modifiedSignature.length - 1] ^= 0x01;
+        assertFalse(verify(algorithm, publicKey, message, modifiedSignature));
     }
 
     private static byte[] xmssPublicBlob(int parameterId, byte[] seedAndRoot) {

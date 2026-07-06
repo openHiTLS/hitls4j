@@ -2,15 +2,12 @@ package org.openhitls.crypto.jce.digest;
 
 import java.security.MessageDigestSpi;
 import org.openhitls.crypto.core.hash.MessageDigestImpl;
-import org.openhitls.crypto.core.NativeResourceUtil;
 
 public class MessageDigest extends MessageDigestSpi {
-    private MessageDigestImpl md;
-    private final String algorithm;
+    private final MessageDigestImpl md;
     private final int digestLength;
 
     protected MessageDigest(String algorithm, int digestLength) {
-        this.algorithm = algorithm;
         this.digestLength = digestLength;
         this.md = new MessageDigestImpl(algorithm);
     }
@@ -34,20 +31,12 @@ public class MessageDigest extends MessageDigestSpi {
 
     @Override
     protected byte[] engineDigest() {
-        return md.doFinal();
+        return md.doFinalAndReset();
     }
 
     @Override
     protected void engineReset() {
-        MessageDigestImpl oldMd = md;
-        MessageDigestImpl newMd = new MessageDigestImpl(algorithm);
-        try {
-            md = NativeResourceUtil.replaceAfterClosing(oldMd, newMd, failure -> failure);
-            newMd = null;
-        } catch (RuntimeException e) {
-            NativeResourceUtil.closeSuppressing(newMd, e);
-            throw e;
-        }
+        md.reset();
     }
 
     public static final class SHA224 extends MessageDigest {

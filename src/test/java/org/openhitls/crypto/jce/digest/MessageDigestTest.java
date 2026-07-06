@@ -86,6 +86,21 @@ public class MessageDigestTest extends BaseTest {
     }
 
     @Test
+    public void testDigestAutomaticallyResets() throws Exception {
+        byte[] message = "automatic reset".getBytes(StandardCharsets.UTF_8);
+
+        for (String algorithm : DIGEST_ALGORITHMS) {
+            MessageDigest md = MessageDigest.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
+
+            byte[] firstHash = md.digest(message);
+            byte[] secondHash = md.digest(message);
+
+            assertArrayEquals("digest() should automatically reset for " + algorithm,
+                    firstHash, secondHash);
+        }
+    }
+
+    @Test
     public void testDigestIncremental() throws Exception {
         for (String algorithm : DIGEST_ALGORITHMS) {
             MessageDigest md = MessageDigest.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
