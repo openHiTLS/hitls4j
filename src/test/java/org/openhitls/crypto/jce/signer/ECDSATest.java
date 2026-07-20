@@ -245,6 +245,63 @@ public class ECDSATest extends BaseTest {
     }
 
     @Test
+    public void testFailedDigestResetKeepsPreviousECDSAContext() throws Exception {
+        KeyPair previousKeyPair = generateP256KeyPair();
+        KeyPair replacementKeyPair = generateP256KeyPair();
+        ResetFailingECDSASigner signer = new ResetFailingECDSASigner();
+        signer.engineInitSign(previousKeyPair.getPrivate());
+        Object previousImpl = getInternalImpl(signer);
+
+        RuntimeException resetFailure = new IllegalStateException("digest reset failed");
+        signer.failNextReset(resetFailure);
+        try {
+            signer.engineInitSign(replacementKeyPair.getPrivate());
+            fail("Expected digest reset failure");
+        } catch (InvalidKeyException expected) {
+            assertSame(resetFailure, expected.getCause());
+        }
+
+        assertSame("Failed reset must not replace or close the previous ECDSA context",
+                previousImpl, getInternalImpl(signer));
+    }
+
+    @Test
+    public void testECDSAUsesIncrementalDigestForChunkedMessages() throws Exception {
+        Provider platformProvider = getPlatformEcProvider();
+        KeyPairGenerator platformKeyGenerator = KeyPairGenerator.getInstance("EC", platformProvider);
+        platformKeyGenerator.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair keyPair = platformKeyGenerator.generateKeyPair();
+        byte[] message = new byte[1024 * 1024];
+        for (int i = 0; i < message.length; i++) {
+            message[i] = (byte) i;
+        }
+
+        ECDSASigner signer = new ECDSASigner.SHA256withECDSA();
+        signer.engineInitSign(keyPair.getPrivate());
+        updateInChunks(signer, message, 4096);
+        assertNull("Standard ECDSA must not buffer the complete message", getInternalBuffer(signer));
+        byte[] signature = signer.engineSign();
+
+        Signature platformVerifier = Signature.getInstance("SHA256withECDSA", platformProvider);
+        platformVerifier.initVerify(keyPair.getPublic());
+        platformVerifier.update(message);
+        assertTrue("Pre-hashed HiTLS ECDSA signature should verify with the platform provider",
+                platformVerifier.verify(signature));
+
+        Signature platformSigner = Signature.getInstance("SHA256withECDSA", platformProvider);
+        platformSigner.initSign(keyPair.getPrivate());
+        platformSigner.update(message);
+        byte[] platformSignature = platformSigner.sign();
+
+        ECDSASigner verifier = new ECDSASigner.SHA256withECDSA();
+        verifier.engineInitVerify(keyPair.getPublic());
+        updateInChunks(verifier, message, 4096);
+        assertNull("Standard ECDSA verification must not buffer the complete message", getInternalBuffer(verifier));
+        assertTrue("HiTLS pre-hashed ECDSA verification should accept a platform signature",
+                verifier.engineVerify(platformSignature));
+    }
+
+    @Test
     public void testP256KeyGeneration() throws Exception {
         KeyPairGenerator keyGen = getKeyPairGenerator("secp256r1");
         ECGenParameterSpec ecSpec = new ECGenParameterSpec("secp256r1");
@@ -800,6 +857,46 @@ public class ECDSATest extends BaseTest {
         Field field = ECDSASigner.class.getDeclaredField("userId");
         field.setAccessible(true);
         return (byte[]) field.get(signer);
+    }
+
+    private byte[] getInternalBuffer(ECDSASigner signer) throws Exception {
+        Field field = ECDSASigner.class.getDeclaredField("buffer");
+        field.setAccessible(true);
+        return (byte[]) field.get(signer);
+    }
+
+    private Object getInternalImpl(ECDSASigner signer) throws Exception {
+        Field field = ECDSASigner.class.getDeclaredField("ecdsaImpl");
+        field.setAccessible(true);
+        return field.get(signer);
+    }
+
+    private static final class ResetFailingECDSASigner extends ECDSASigner {
+        private RuntimeException resetFailure;
+
+        private ResetFailingECDSASigner() {
+            super("SHA256");
+        }
+
+        private void failNextReset(RuntimeException failure) {
+            resetFailure = failure;
+        }
+
+        @Override
+        void resetInput() {
+            if (resetFailure != null) {
+                RuntimeException failure = resetFailure;
+                resetFailure = null;
+                throw failure;
+            }
+            super.resetInput();
+        }
+    }
+
+    private void updateInChunks(ECDSASigner signer, byte[] data, int chunkSize) throws SignatureException {
+        for (int offset = 0; offset < data.length; offset += chunkSize) {
+            signer.engineUpdate(data, offset, Math.min(chunkSize, data.length - offset));
+        }
     }
 
     private byte[] concat(byte[] first, byte[] second) {

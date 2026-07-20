@@ -27,6 +27,8 @@ import java.security.spec.RSAPrivateKeySpec;
 import java.security.spec.RSAPublicKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Arrays;
+import org.openhitls.crypto.jce.key.RSAKeyUtil;
 import org.openhitls.crypto.jce.key.RSAPrivateKeyImpl;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
 import java.security.Security;
@@ -395,6 +397,102 @@ public class RSATest {
             fail("Expected empty public exponent to be rejected");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("public exponent"));
+        }
+    }
+
+    @Test
+    public void testLowLevelRSAImplImportsCompleteCrtKey() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        assertTrue(keyPair.getPrivate() instanceof RSAPrivateCrtKey);
+        RSAPrivateCrtKey privateKey = (RSAPrivateCrtKey) keyPair.getPrivate();
+        byte[][] components = {
+            RSAKeyUtil.toUnsignedBytes(privateKey.getModulus()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrivateExponent()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPublicExponent()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrimeP()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrimeQ()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrimeExponentP()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrimeExponentQ()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getCrtCoefficient())
+        };
+        byte[] data = "RSA CRT import path".getBytes(StandardCharsets.UTF_8);
+
+        byte[] signature;
+        try (RSAImpl rsa = new RSAImpl()) {
+            rsa.setCrtKeys(components[0], components[1], components[2], components[3],
+                    components[4], components[5], components[6], components[7]);
+            rsa.setDigestAlgorithm("SHA-256");
+            signature = rsa.sign(data);
+        } finally {
+            for (int i = 1; i < components.length; i++) {
+                if (i != 2) {
+                    Arrays.fill(components[i], (byte) 0);
+                }
+            }
+        }
+
+        assertTrue("Signature made with imported CRT parameters should verify",
+                verify("SHA256withRSA", keyPair.getPublic(), data, signature));
+    }
+
+    @Test
+    public void testLowLevelRSAImplCalculatesMissingCrtValues() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        assertTrue(keyPair.getPrivate() instanceof RSAPrivateCrtKey);
+        RSAPrivateCrtKey privateKey = (RSAPrivateCrtKey) keyPair.getPrivate();
+        byte[][] components = {
+            RSAKeyUtil.toUnsignedBytes(privateKey.getModulus()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrivateExponent()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPublicExponent()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrimeP()),
+            RSAKeyUtil.toUnsignedBytes(privateKey.getPrimeQ())
+        };
+        byte[] data = "RSA calculated CRT values".getBytes(StandardCharsets.UTF_8);
+
+        byte[] signature;
+        try (RSAImpl rsa = new RSAImpl()) {
+            rsa.setCrtKeys(components[0], components[1], components[2], components[3],
+                    components[4], null, null, null);
+            rsa.setDigestAlgorithm("SHA-256");
+            signature = rsa.sign(data);
+        } finally {
+            Arrays.fill(components[1], (byte) 0);
+            Arrays.fill(components[3], (byte) 0);
+            Arrays.fill(components[4], (byte) 0);
+        }
+
+        assertTrue("Signature made with calculated CRT values should verify",
+                verify("SHA256withRSA", keyPair.getPublic(), data, signature));
+    }
+
+    @Test
+    public void testRSAImplRejectsPartialCrtValues() {
+        byte[] component = new byte[] {0x01};
+        try (RSAImpl rsa = new RSAImpl()) {
+            try {
+                rsa.setCrtKeys(component, component, component, component, component,
+                        component, null, null);
+                fail("Expected partial CRT values to be rejected");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("all provided or all omitted"));
+            }
+        }
+    }
+
+    @Test
+    public void testNativeRSASetCrtKeysRejectsPartialCrtValues() {
+        byte[] component = new byte[] {0x01};
+        long ctx = CryptoNative.rsaCreateContext();
+        try {
+            try {
+                CryptoNative.rsaSetCrtKeys(ctx, component, component, component, component,
+                        component, component, null, null);
+                fail("Expected native rsaSetCrtKeys to reject partial CRT values");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("all provided or all omitted"));
+            }
+        } finally {
+            CryptoNative.rsaFreeContext(ctx);
         }
     }
 

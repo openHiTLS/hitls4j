@@ -57,6 +57,27 @@ public class RSAImpl extends NativeResource {
         }
     }
 
+    public void setCrtKeys(byte[] modulus, byte[] privateExponent, byte[] publicExponent,
+            byte[] primeP, byte[] primeQ, byte[] primeExponentP, byte[] primeExponentQ,
+            byte[] crtCoefficient) {
+        requireCrtKeyComponents(modulus, privateExponent, publicExponent, primeP, primeQ,
+                primeExponentP, primeExponentQ, crtCoefficient);
+        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(modulus, privateExponent);
+        boolean updated = false;
+        try {
+            CryptoNative.rsaSetCrtKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey(),
+                    publicExponent, primeP, primeQ, primeExponentP, primeExponentQ, crtCoefficient);
+            updated = true;
+            SensitiveDataUtil.clear(this.privateKey);
+            this.publicKey = keyMaterial.publicKey();
+            this.privateKey = keyMaterial.privateKey();
+        } finally {
+            if (!updated) {
+                keyMaterial.clearPrivate();
+            }
+        }
+    }
+
     public void setParameters(byte[] e, int keyBits) {
         if (e == null) {
             throw new IllegalArgumentException("RSA parameters cannot be null");
@@ -153,6 +174,29 @@ public class RSAImpl extends NativeResource {
         if ((publicKey != null || privateKey != null)
                 && (publicExponent == null || publicExponent.length == 0)) {
             throw new IllegalArgumentException(PUBLIC_EXPONENT_REQUIRED);
+        }
+    }
+
+    private static void requireCrtKeyComponents(byte[] modulus, byte[] privateExponent,
+            byte[] publicExponent, byte[] primeP, byte[] primeQ, byte[] primeExponentP,
+            byte[] primeExponentQ, byte[] crtCoefficient) {
+        if (modulus == null || modulus.length == 0
+                || privateExponent == null || privateExponent.length == 0
+                || publicExponent == null || publicExponent.length == 0) {
+            throw new IllegalArgumentException("RSA key components cannot be null or empty");
+        }
+        if (primeP == null || primeP.length == 0 || primeQ == null || primeQ.length == 0) {
+            throw new IllegalArgumentException("RSA CRT primes cannot be null or empty");
+        }
+
+        boolean derivedCrtValuesOmitted = primeExponentP == null
+                && primeExponentQ == null && crtCoefficient == null;
+        if (!derivedCrtValuesOmitted
+                && (primeExponentP == null || primeExponentP.length == 0
+                || primeExponentQ == null || primeExponentQ.length == 0
+                || crtCoefficient == null || crtCoefficient.length == 0)) {
+            throw new IllegalArgumentException(
+                    "RSA CRT exponents and coefficient must be all provided or all omitted");
         }
     }
 

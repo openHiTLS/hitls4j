@@ -8,6 +8,7 @@ import java.security.PublicKey;
 import java.security.SignatureException;
 import java.security.SignatureSpi;
 import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPrivateCrtKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
@@ -15,13 +16,12 @@ import java.util.Locale;
 
 import org.openhitls.crypto.core.NativeResourceUtil;
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
-import org.openhitls.crypto.core.hash.MessageDigestImpl;
 import org.openhitls.crypto.jce.key.RSAKeyUtil;
 
 public class RSASigner extends SignatureSpi {
     private RSAImpl rsaImpl;
     private final String digestAlgorithm;
-    private final MessageDigestImpl messageDigest;
+    private final SignatureDigest signatureDigest;
     private final SignatureState state = new SignatureState();
     private RSAPadding.PSSParameterSpec pssParams;
 
@@ -30,7 +30,7 @@ public class RSASigner extends SignatureSpi {
         this.digestAlgorithm = canonicalDigestAlgorithm;
         this.rsaImpl = createRSAImpl();
         try {
-            this.messageDigest = new MessageDigestImpl(canonicalDigestAlgorithm);
+            this.signatureDigest = new SignatureDigest(canonicalDigestAlgorithm, "RSA");
         } catch (RuntimeException | Error e) {
             NativeResourceUtil.closeSuppressing(rsaImpl, e);
             throw e;
@@ -80,6 +80,11 @@ public class RSASigner extends SignatureSpi {
 
         RSAPrivateKey rsaKey = (RSAPrivateKey) privateKey;
         byte[] privateExponent = null;
+        byte[] primeP = null;
+        byte[] primeQ = null;
+        byte[] primeExponentP = null;
+        byte[] primeExponentQ = null;
+        byte[] crtCoefficient = null;
         RSAImpl newImpl = null;
         try {
             byte[] modulus = RSAKeyUtil.toUnsignedBytes(rsaKey.getModulus());
@@ -87,7 +92,18 @@ public class RSASigner extends SignatureSpi {
             byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(RSAKeyUtil.requirePublicExponent(rsaKey));
 
             newImpl = createRSAImpl();
-            newImpl.setKeys(modulus, privateExponent, publicExponent);
+            if (rsaKey instanceof RSAPrivateCrtKey) {
+                RSAPrivateCrtKey crtKey = (RSAPrivateCrtKey) rsaKey;
+                primeP = RSAKeyUtil.toUnsignedBytes(crtKey.getPrimeP());
+                primeQ = RSAKeyUtil.toUnsignedBytes(crtKey.getPrimeQ());
+                primeExponentP = RSAKeyUtil.toUnsignedBytes(crtKey.getPrimeExponentP());
+                primeExponentQ = RSAKeyUtil.toUnsignedBytes(crtKey.getPrimeExponentQ());
+                crtCoefficient = RSAKeyUtil.toUnsignedBytes(crtKey.getCrtCoefficient());
+                newImpl.setCrtKeys(modulus, privateExponent, publicExponent,
+                        primeP, primeQ, primeExponentP, primeExponentQ, crtCoefficient);
+            } else {
+                newImpl.setKeys(modulus, privateExponent, publicExponent);
+            }
             newImpl.setDigestAlgorithm(digestAlgorithm);
             commitImpl(newImpl, true);
             newImpl = null;
@@ -98,9 +114,7 @@ public class RSASigner extends SignatureSpi {
             NativeResourceUtil.closeSuppressing(newImpl, e);
             throw new InvalidKeyException("Failed to initialize signing key", e);
         } finally {
-            if (privateExponent != null) {
-                Arrays.fill(privateExponent, (byte) 0);
-            }
+            clear(privateExponent, primeP, primeQ, primeExponentP, primeExponentQ, crtCoefficient);
         }
     }
 
@@ -112,12 +126,7 @@ public class RSASigner extends SignatureSpi {
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
         state.ensureReadyForUpdate("RSA");
-        SignerBuffer.validateUpdateInput(b, off, len);
-        try {
-            messageDigest.update(b, off, len);
-        } catch (RuntimeException e) {
-            throw new SignatureException("Failed to update RSA digest", e);
-        }
+        signatureDigest.update(b, off, len);
     }
 
     @Override
@@ -125,14 +134,12 @@ public class RSASigner extends SignatureSpi {
         state.ensureSigning("RSA");
         byte[] digest = null;
         try {
-            digest = messageDigest.doFinalAndReset();
+            digest = signatureDigest.finishAndReset();
             return rsaImpl.signDigest(digest);
         } catch (Exception e) {
             throw new SignatureException("Failed to sign data", e);
         } finally {
-            if (digest != null) {
-                Arrays.fill(digest, (byte) 0);
-            }
+            SignatureDigest.clear(digest);
         }
     }
 
@@ -147,14 +154,12 @@ public class RSASigner extends SignatureSpi {
 
         byte[] digest = null;
         try {
-            digest = messageDigest.doFinalAndReset();
+            digest = signatureDigest.finishAndReset();
             return rsaImpl.verifyDigest(digest, sigBytes);
         } catch (Exception e) {
             throw new SignatureException("Failed to verify signature", e);
         } finally {
-            if (digest != null) {
-                Arrays.fill(digest, (byte) 0);
-            }
+            SignatureDigest.clear(digest);
         }
     }
 
@@ -194,9 +199,8 @@ public class RSASigner extends SignatureSpi {
     }
 
     private void commitImpl(RSAImpl newImpl, boolean signing) throws InvalidKeyException {
-        resetDigest();
-        rsaImpl = NativeResourceUtil.replaceAfterClosing(rsaImpl, newImpl,
-                failure -> new InvalidKeyException("Failed to close previous RSA context", failure));
+        rsaImpl = SignatureState.replaceAfterReset(
+                rsaImpl, newImpl, this::resetDigest, "RSA");
         if (signing) {
             state.activateSigning();
         } else {
@@ -205,7 +209,15 @@ public class RSASigner extends SignatureSpi {
     }
 
     private void resetDigest() {
-        messageDigest.reset();
+        signatureDigest.reset();
+    }
+
+    private static void clear(byte[]... values) {
+        for (byte[] value : values) {
+            if (value != null) {
+                Arrays.fill(value, (byte) 0);
+            }
+        }
     }
 
     private void validatePSSHashAlgorithm(RSAPadding.PSSParameterSpec params) {

@@ -182,6 +182,16 @@ public class ECDSAImpl extends NativeResource {
         return CryptoNative.ecdsaSign(nativeContext, data, hashAlgorithm);
     }
 
+    public byte[] signDigest(byte[] digest) {
+        if (digest == null) {
+            throw new IllegalArgumentException("Digest cannot be null");
+        }
+        if (privateKey == null) {
+            throw new IllegalStateException("Private key not initialized");
+        }
+        return CryptoNative.ecdsaSignDigest(nativeContext, digest);
+    }
+
     /**
      * Verifies a signature using SM2 public key
      * @param data The original data
@@ -197,6 +207,16 @@ public class ECDSAImpl extends NativeResource {
             throw new IllegalStateException("Public key not initialized");
         }
         return CryptoNative.ecdsaVerify(nativeContext, data, signature, hashAlgorithm);
+    }
+
+    public boolean verifyDigest(byte[] digest, byte[] signature) {
+        if (digest == null || signature == null) {
+            throw new IllegalArgumentException("Digest and signature cannot be null");
+        }
+        if (publicKey == null) {
+            throw new IllegalStateException("Public key not initialized");
+        }
+        return CryptoNative.ecdsaVerifyDigest(nativeContext, digest, signature);
     }
 
     public String getCurveName() {

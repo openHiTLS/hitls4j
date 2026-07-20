@@ -26,6 +26,8 @@ public class CryptoNative {
     public static native byte[] ecdsaDecrypt(long nativeRef, byte[] encryptedData);
     public static native byte[] ecdsaSign(long nativeRef, byte[] data, int hashAlg);
     public static native boolean ecdsaVerify(long nativeRef, byte[] data, byte[] signature, int hashAlg);
+    public static native byte[] ecdsaSignDigest(long nativeRef, byte[] digest);
+    public static native boolean ecdsaVerifyDigest(long nativeRef, byte[] digest, byte[] signature);
     public static native byte[] ecEncodePublicKey(String curveName, byte[] publicKey);
     public static native byte[] ecEncodePrivateKey(String curveName, byte[] privateKey);
     public static native byte[][] ecDecodePublicKey(byte[] x509EncodedKey);
@@ -58,6 +60,10 @@ public class CryptoNative {
     public static native void rsaFreeContext(long nativeRef);
     public static native void rsaSetParameters(long nativeRef, byte[] e, int keyBits);
     public static native void rsaSetKeys(long nativeRef, byte[] publicKey, byte[] privateKey, byte[] publicExponent);
+    public static native void rsaSetCrtKeys(long nativeRef, byte[] modulus, byte[] privateExponent,
+                                            byte[] publicExponent, byte[] primeP, byte[] primeQ,
+                                            byte[] primeExponentP, byte[] primeExponentQ,
+                                            byte[] crtCoefficient);
     public static native void rsaSetPadding(long nativeRef, int paddingMode);
     public static native byte[][] rsaGenerateKeyPair(long nativeRef);
     public static native byte[] rsaSign(long nativeRef, byte[] data, String digestAlgorithm);
