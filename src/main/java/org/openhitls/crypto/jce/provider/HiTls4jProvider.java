@@ -254,13 +254,11 @@ public final class HiTls4jProvider extends Provider {
         put("KeyFactory.Classic-McEliece", "org.openhitls.crypto.jce.key.factory.McElieceKeyFactory");
         put("KeyAgreement.Classic-McEliece", "org.openhitls.crypto.jce.keyagreement.McElieceKeyAgreement");
 
-        put("KeyPairGenerator.LMS", "org.openhitls.crypto.jce.key.generator.LMSKeyPairGenerator");
         put("AlgorithmParameters.LMS", "org.openhitls.crypto.jce.param.LMSParameters");
         put("KeyFactory.LMS", "org.openhitls.crypto.jce.key.factory.LMSKeyFactory");
         put("Signature.LMS", "org.openhitls.crypto.jce.signer.LMSSigner");
         put("Signature.SHA256withLMS", "org.openhitls.crypto.jce.signer.LMSSigner");
 
-        put("KeyPairGenerator.HSS", "org.openhitls.crypto.jce.key.generator.HSSKeyPairGenerator");
         put("AlgorithmParameters.HSS", "org.openhitls.crypto.jce.param.HSSParameters");
         put("KeyFactory.HSS", "org.openhitls.crypto.jce.key.factory.HSSKeyFactory");
         put("Signature.HSS", "org.openhitls.crypto.jce.signer.HSSSigner");

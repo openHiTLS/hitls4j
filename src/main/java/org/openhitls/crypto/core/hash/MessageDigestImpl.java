@@ -1,5 +1,7 @@
 package org.openhitls.crypto.core.hash;
 
+import java.util.Arrays;
+
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
 
@@ -34,6 +36,38 @@ public class MessageDigestImpl extends NativeResource {
 
     public byte[] doFinal() {
         return CryptoNative.messageDigestFinal(nativeContext);
+    }
+
+    /**
+     * Finishes the current digest and restores this context for the next message.
+     */
+    public byte[] doFinalAndReset() {
+        byte[] digest = null;
+        Throwable primaryFailure = null;
+        try {
+            digest = doFinal();
+            return digest;
+        } catch (RuntimeException | Error e) {
+            primaryFailure = e;
+            throw e;
+        } finally {
+            try {
+                reset();
+            } catch (RuntimeException | Error resetFailure) {
+                if (primaryFailure != null) {
+                    primaryFailure.addSuppressed(resetFailure);
+                } else {
+                    if (digest != null) {
+                        Arrays.fill(digest, (byte) 0);
+                    }
+                    throw resetFailure;
+                }
+            }
+        }
+    }
+
+    public void reset() {
+        CryptoNative.messageDigestReset(nativeContext);
     }
 
     public byte[] digest(byte[] data) {

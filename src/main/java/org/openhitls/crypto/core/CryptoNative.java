@@ -5,6 +5,7 @@ public class CryptoNative {
     public static native long messageDigestInit(String algorithm);
     public static native void messageDigestUpdate(long contextPtr, byte[] data, int offset, int length);
     public static native byte[] messageDigestFinal(long contextPtr);
+    public static native void messageDigestReset(long contextPtr);
     public static native void messageDigestFree(long contextPtr);
 
     // HMAC native methods
@@ -61,6 +62,8 @@ public class CryptoNative {
     public static native byte[][] rsaGenerateKeyPair(long nativeRef);
     public static native byte[] rsaSign(long nativeRef, byte[] data, String digestAlgorithm);
     public static native boolean rsaVerify(long nativeRef, byte[] data, byte[] signature, String digestAlgorithm);
+    public static native byte[] rsaSignDigest(long nativeRef, byte[] digest, String digestAlgorithm);
+    public static native boolean rsaVerifyDigest(long nativeRef, byte[] digest, byte[] signature, String digestAlgorithm);
     public static native byte[] rsaEncrypt(long nativeRef, byte[] data);
     public static native byte[] rsaDecrypt(long nativeRef, byte[] encryptedData);
     public static native byte[] rsaEncodePublicKey(byte[] modulus, byte[] publicExponent);
@@ -77,6 +80,11 @@ public class CryptoNative {
     public static native boolean rsaVerifyPSS(long nativeRef, byte[] data, byte[] signature,
                                               String digestAlgorithm, String mgf1Algorithm,
                                               int saltLength, int trailerField);
+    public static native byte[] rsaSignDigestPSS(long nativeRef, byte[] digest, String digestAlgorithm,
+                                                 String mgf1Algorithm, int saltLength, int trailerField);
+    public static native boolean rsaVerifyDigestPSS(long nativeRef, byte[] digest, byte[] signature,
+                                                    String digestAlgorithm, String mgf1Algorithm,
+                                                    int saltLength, int trailerField);
 
     // MLDSA native methods
     public static native long mldsaCreateContext(String parameterSet);
@@ -128,20 +136,14 @@ public class CryptoNative {
 
     // LMS native methods
     public static native long lmsCreateContext(String lmsType, String otsType);
-    public static native byte[][] lmsGenerateKeyPair(long nativeRef);
     public static native void lmsSetPublicKey(long nativeRef, byte[] publicKey);
-    public static native void lmsSetPrivateKey(long nativeRef, byte[] privateKey);
-    public static native byte[][] lmsSignAndExportState(long nativeRef, byte[] data, int hashAlgorithm);
-    public static native boolean lmsVerify(long nativeRef, byte[] data, byte[] signature, int hashAlgorithm);
+    public static native boolean lmsVerify(long nativeRef, byte[] data, byte[] signature);
     public static native void lmsFreeContext(long nativeRef);
 
     // HSS native methods
     public static native long hssCreateContext(String[] lmsTypes, String[] otsTypes);
-    public static native byte[][] hssGenerateKeyPair(long nativeRef);
     public static native void hssSetPublicKey(long nativeRef, byte[] publicKey);
-    public static native void hssSetPrivateKey(long nativeRef, byte[] privateKey);
-    public static native byte[][] hssSignAndExportState(long nativeRef, byte[] data, int hashAlgorithm);
-    public static native boolean hssVerify(long nativeRef, byte[] data, byte[] signature, int hashAlgorithm);
+    public static native boolean hssVerify(long nativeRef, byte[] data, byte[] signature);
     public static native void hssFreeContext(long nativeRef);
 
     // XMSS native methods

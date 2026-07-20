@@ -90,6 +90,22 @@ public class RSAImpl extends NativeResource {
         return CryptoNative.rsaVerify(nativeContext, data, signature, digestAlgorithm);
     }
 
+    public byte[] signDigest(byte[] digest) throws SignatureException {
+        if (paddingMode == RSAPadding.PADDING_PSS && pssParams != null) {
+            return CryptoNative.rsaSignDigestPSS(nativeContext, digest, digestAlgorithm,
+                pssParams.getMGF1HashAlgorithm(), pssParams.getSaltLength(), pssParams.getTrailerField());
+        }
+        return CryptoNative.rsaSignDigest(nativeContext, digest, digestAlgorithm);
+    }
+
+    public boolean verifyDigest(byte[] digest, byte[] signature) throws SignatureException {
+        if (paddingMode == RSAPadding.PADDING_PSS && pssParams != null) {
+            return CryptoNative.rsaVerifyDigestPSS(nativeContext, digest, signature, digestAlgorithm,
+                pssParams.getMGF1HashAlgorithm(), pssParams.getSaltLength(), pssParams.getTrailerField());
+        }
+        return CryptoNative.rsaVerifyDigest(nativeContext, digest, signature, digestAlgorithm);
+    }
+
     public byte[] encrypt(byte[] data) {
         if (publicKey == null) {
             throw new IllegalStateException("Public key must be set before encryption");

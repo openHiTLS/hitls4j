@@ -7,6 +7,8 @@ import org.openhitls.crypto.core.CryptoNative;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 public class MessageDigestImplTest extends BaseTest {
@@ -31,6 +33,36 @@ public class MessageDigestImplTest extends BaseTest {
 
         assertArrayEquals(hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
                 digest.doFinal());
+    }
+
+    @Test
+    public void testDoFinalAndResetReusesNativeContext() {
+        byte[] input = "abc".getBytes(StandardCharsets.US_ASCII);
+        byte[] expected = hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+
+        try (ExposedMessageDigestImpl digest = new ExposedMessageDigestImpl("SHA-256")) {
+            long context = digest.context();
+            digest.update(input);
+            assertArrayEquals(expected, digest.doFinalAndReset());
+
+            assertEquals("Reset should reuse the native digest context", context, digest.context());
+            digest.update(input);
+            assertArrayEquals(expected, digest.doFinal());
+        }
+    }
+
+    @Test
+    public void testDoFinalAndResetPreservesErrorWhenResetFails() {
+        try (FailingMessageDigestImpl digest = new FailingMessageDigestImpl()) {
+            try {
+                digest.doFinalAndReset();
+                fail("Expected doFinal failure");
+            } catch (Throwable failure) {
+                assertSame(digest.doFinalFailure, failure);
+                assertEquals(1, failure.getSuppressed().length);
+                assertSame(digest.resetFailure, failure.getSuppressed()[0]);
+            }
+        }
     }
 
     private void assertInvalidUpdateRange(int offset, int length) {
@@ -70,6 +102,25 @@ public class MessageDigestImplTest extends BaseTest {
 
         private long context() {
             return nativeContext;
+        }
+    }
+
+    private static final class FailingMessageDigestImpl extends MessageDigestImpl {
+        private final AssertionError doFinalFailure = new AssertionError("doFinal failed");
+        private final IllegalStateException resetFailure = new IllegalStateException("reset failed");
+
+        private FailingMessageDigestImpl() {
+            super("SHA-256");
+        }
+
+        @Override
+        public byte[] doFinal() {
+            throw doFinalFailure;
+        }
+
+        @Override
+        public void reset() {
+            throw resetFailure;
         }
     }
 }

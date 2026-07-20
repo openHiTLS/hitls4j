@@ -33,6 +33,14 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_message
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    messageDigestReset
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_messageDigestReset
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    messageDigestFree
  * Signature: (J)V
  */
@@ -377,6 +385,22 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerify
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaSignDigest
+ * Signature: (J[BLjava/lang/String;)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSignDigest
+  (JNIEnv *, jclass, jlong, jbyteArray, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaVerifyDigest
+ * Signature: (J[B[BLjava/lang/String;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerifyDigest
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jstring);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    rsaEncrypt
  * Signature: (J[B)[B
  */
@@ -437,6 +461,22 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSign
  * Signature: (J[B[BLjava/lang/String;Ljava/lang/String;II)Z
  */
 JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerifyPSS
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jstring, jstring, jint, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaSignDigestPSS
+ * Signature: (J[BLjava/lang/String;Ljava/lang/String;II)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSignDigestPSS
+  (JNIEnv *, jclass, jlong, jbyteArray, jstring, jstring, jint, jint);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaVerifyDigestPSS
+ * Signature: (J[B[BLjava/lang/String;Ljava/lang/String;II)Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaVerifyDigestPSS
   (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jstring, jstring, jint, jint);
 
 /*

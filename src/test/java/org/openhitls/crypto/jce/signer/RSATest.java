@@ -7,6 +7,7 @@ import static org.junit.Assert.*;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
+import java.security.InvalidParameterException;
 import java.security.Key;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -111,6 +112,35 @@ public class RSATest {
     }
 
     @Test
+    public void testRSARejectsUnsupportedDigestAtConstruction() {
+        for (String algorithm : new String[] {null, "SHA-999"}) {
+            try {
+                new RSASigner(algorithm);
+                fail("Expected unsupported RSA digest to be rejected");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("Unsupported RSA digest"));
+            }
+        }
+    }
+
+    @Test
+    public void testRSACanonicalizesDigestAliasesForNativeOperations() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "RSA digest alias normalization".getBytes(StandardCharsets.UTF_8);
+
+        RSASigner signer = new RSASigner("sha-256");
+        signer.engineInitSign(keyPair.getPrivate());
+        signer.engineUpdate(data, 0, data.length);
+        byte[] signature = signer.engineSign();
+
+        RSASigner verifier = new RSASigner("sha256");
+        verifier.engineInitVerify(keyPair.getPublic());
+        verifier.engineUpdate(data, 0, data.length);
+        assertTrue("Canonicalized RSA digest aliases should reach native operations",
+                verifier.engineVerify(signature));
+    }
+
+    @Test
     public void testSHA224WithRSAOidAlias() throws Exception {
         KeyPair keyPair = generateKeyPair();
         byte[] data = "SHA224withRSA OID alias".getBytes(StandardCharsets.UTF_8);
@@ -136,6 +166,23 @@ public class RSATest {
         tamperedData[0] ^= 0x01;
         assertFalse("Signature should not verify with tampered data",
                 verify("SHA256withRSA", keyPair.getPublic(), tamperedData, signature));
+    }
+
+    @Test
+    public void testRSAPSSRejectsTamperedSignatureAndDataWithoutThrowing() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "Original RSA-PSS test data".getBytes(StandardCharsets.UTF_8);
+        byte[] signature = sign("SHA256withRSA/PSS", keyPair.getPrivate(), data);
+
+        byte[] tamperedSignature = signature.clone();
+        tamperedSignature[tamperedSignature.length - 1] ^= 0x01;
+        assertFalse("Tampered PSS signature should return false",
+                verify("SHA256withRSA/PSS", keyPair.getPublic(), data, tamperedSignature));
+
+        byte[] tamperedData = data.clone();
+        tamperedData[0] ^= 0x01;
+        assertFalse("PSS signature with tampered data should return false",
+                verify("SHA256withRSA/PSS", keyPair.getPublic(), tamperedData, signature));
     }
 
     @Test
@@ -233,36 +280,58 @@ public class RSATest {
     }
 
     @Test
-    public void testRSASignClearsBufferedMessageBytes() throws Exception {
+    public void testRSASignerUsesIncrementalDigestForSign() throws Exception {
         KeyPair keyPair = generateKeyPair();
-        byte[] data = "sensitive rsa signing payload that grows the internal buffer".getBytes(StandardCharsets.UTF_8);
+        byte[] data = repeatedMessage(1024 * 1024);
         RSASigner signer = new RSASigner.SHA256withRSA();
 
         signer.engineInitSign(keyPair.getPrivate());
-        signer.engineUpdate(data, 0, data.length);
+        updateInChunks(signer, data, 8191);
 
         byte[] signature = signer.engineSign();
 
         assertNotNull(signature);
-        assertMessageBufferCleared(signer);
     }
 
     @Test
-    public void testRSAVerifyClearsBufferedMessageBytes() throws Exception {
+    public void testRSASignerUsesIncrementalDigestForVerify() throws Exception {
         KeyPair keyPair = generateKeyPair();
-        byte[] data = "sensitive rsa verification payload that grows the internal buffer".getBytes(StandardCharsets.UTF_8);
+        byte[] data = repeatedMessage(1024 * 1024);
         byte[] signature = sign("SHA256withRSA", keyPair.getPrivate(), data);
         RSASigner verifier = new RSASigner.SHA256withRSA();
 
         verifier.engineInitVerify(keyPair.getPublic());
-        verifier.engineUpdate(data, 0, data.length);
+        updateInChunks(verifier, data, 8191);
 
         assertTrue(verifier.engineVerify(signature));
-        assertMessageBufferCleared(verifier);
     }
 
     @Test
-    public void testRSAVerifyClearsBufferedMessageBytesWhenSignatureIsNull() throws Exception {
+    public void testRSASignerAndVerifierCanBeReusedWithoutReinitializing() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] first = "first RSA message".getBytes(StandardCharsets.UTF_8);
+        byte[] second = "second RSA message".getBytes(StandardCharsets.UTF_8);
+        RSASigner signer = new RSASigner.SHA256withRSA();
+
+        signer.engineInitSign(keyPair.getPrivate());
+        signer.engineUpdate(first, 0, first.length);
+        byte[] firstSignature = signer.engineSign();
+        signer.engineUpdate(second, 0, second.length);
+        byte[] secondSignature = signer.engineSign();
+
+        assertTrue(verify("SHA256withRSA", keyPair.getPublic(), first, firstSignature));
+        assertTrue(verify("SHA256withRSA", keyPair.getPublic(), second, secondSignature));
+
+        RSASigner verifier = new RSASigner.SHA256withRSA();
+        verifier.engineInitVerify(keyPair.getPublic());
+        verifier.engineUpdate(first, 0, first.length);
+        assertTrue(verifier.engineVerify(firstSignature));
+        verifier.engineUpdate(second, 0, second.length);
+        assertTrue(verifier.engineVerify(secondSignature));
+    }
+
+    @Test
+    public void testRSAVerifyRejectsNullSignatureAfterDigestUpdate() throws Exception {
         KeyPair keyPair = generateKeyPair();
         byte[] data = "sensitive rsa verification payload before null signature".getBytes(StandardCharsets.UTF_8);
         RSASigner verifier = new RSASigner.SHA256withRSA();
@@ -276,22 +345,22 @@ public class RSATest {
         } catch (SignatureException expected) {
             // expected
         }
-        assertMessageBufferCleared(verifier);
     }
 
     @Test
-    public void testRSAReinitClearsPreviousBufferedMessageBytes() throws Exception {
+    public void testRSAReinitResetsIncrementalDigest() throws Exception {
         KeyPair keyPair = generateKeyPair();
         byte[] data = "sensitive rsa payload buffered before reinitialization".getBytes(StandardCharsets.UTF_8);
         RSASigner signer = new RSASigner.SHA256withRSA();
 
         signer.engineInitSign(keyPair.getPrivate());
         signer.engineUpdate(data, 0, data.length);
-        RSASigner.MessageBufferStatus previousBuffer = signer.messageBufferStatus();
 
         signer.engineInitVerify(keyPair.getPublic());
 
-        assertMessageBufferCleared(previousBuffer);
+        byte[] signature = sign("SHA256withRSA", keyPair.getPrivate(), new byte[0]);
+        assertTrue("Reinitialization should reset the digest to an empty message",
+                signer.engineVerify(signature));
     }
 
     @Test
@@ -958,6 +1027,50 @@ public class RSATest {
     }
 
     @Test
+    public void testFixedRSAPSSRejectsMismatchedHashAlgorithm() throws Exception {
+        String[][] mismatchedParameters = {
+            {"SHA224withRSA/PSS", "SHA256", "SHA224"},
+            {"SHA256withRSA/PSS", "SHA512", "SHA256"},
+            {"SHA256withRSA/PSS", "SHA-512", "SHA256"},
+            {"SHA384withRSA/PSS", "SHA256", "SHA384"},
+            {"SHA512withRSA/PSS", "SHA256", "SHA512"}
+        };
+
+        for (String[] testCase : mismatchedParameters) {
+            Signature signature = Signature.getInstance(testCase[0], HiTls4jProvider.PROVIDER_NAME);
+            try {
+                signature.setParameter(new RSAPadding.PSSParameterSpec(
+                        testCase[1], testCase[2], -1, 1));
+                fail("Expected mismatched PSS hash to be rejected for " + testCase[0]);
+            } catch (InvalidParameterException expected) {
+                assertTrue(expected.getMessage().contains("does not match"));
+            }
+        }
+    }
+
+    @Test
+    public void testFixedRSAPSSAcceptsMatchingHashAliasAndCustomMGF1() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        byte[] data = "RSA-PSS matching hash parameter".getBytes(StandardCharsets.UTF_8);
+        RSAPadding.PSSParameterSpec params = new RSAPadding.PSSParameterSpec(
+                "SHA-256", "SHA512", 32, 1);
+
+        Signature signer = Signature.getInstance("SHA256withRSA/PSS", HiTls4jProvider.PROVIDER_NAME);
+        signer.setParameter(params);
+        signer.initSign(keyPair.getPrivate());
+        signer.update(data);
+        byte[] signature = signer.sign();
+
+        Signature verifier = Signature.getInstance("SHA256withRSA/PSS", HiTls4jProvider.PROVIDER_NAME);
+        verifier.setParameter(params);
+        verifier.initVerify(keyPair.getPublic());
+        verifier.update(data);
+
+        assertTrue("Matching PSS hash alias and custom MGF1 should remain supported",
+                verifier.verify(signature));
+    }
+
+    @Test
     public void testRSAPSSSignatureWithDifferentMessageLengths() throws Exception {
         // Initialize the key pair generator
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
@@ -1121,13 +1234,26 @@ public class RSATest {
         }
     }
 
-    private static void assertMessageBufferCleared(RSASigner signer) {
-        assertMessageBufferCleared(signer.messageBufferStatus());
+    private static byte[] repeatedMessage(int length) {
+        byte[] data = new byte[length];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = (byte) (i & 0xff);
+        }
+        return data;
     }
 
-    private static void assertMessageBufferCleared(RSASigner.MessageBufferStatus messageBuffer) {
-        assertNotNull("Message buffer should exist", messageBuffer);
-        assertTrue("Message buffer should be cleared", messageBuffer.isCleared());
+    private static void updateInChunks(Signature signature, byte[] data, int chunkSize) throws SignatureException {
+        for (int offset = 0; offset < data.length; offset += chunkSize) {
+            int length = Math.min(chunkSize, data.length - offset);
+            signature.update(data, offset, length);
+        }
+    }
+
+    private static void updateInChunks(RSASigner signer, byte[] data, int chunkSize) throws SignatureException {
+        for (int offset = 0; offset < data.length; offset += chunkSize) {
+            int length = Math.min(chunkSize, data.length - offset);
+            signer.engineUpdate(data, offset, length);
+        }
     }
 
     private static byte[] concat(byte[] first, byte[] second) {

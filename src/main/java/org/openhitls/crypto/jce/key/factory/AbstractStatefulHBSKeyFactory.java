@@ -14,6 +14,10 @@ import org.openhitls.crypto.jce.spec.StatefulHBSPrivateKeySpec;
 import org.openhitls.crypto.jce.spec.StatefulHBSPublicKeySpec;
 
 public abstract class AbstractStatefulHBSKeyFactory extends KeyFactorySpi {
+    protected boolean supportsPrivateKeys() {
+        return true;
+    }
+
     protected abstract PrivateKey createPrivate(StatefulHBSPrivateKeySpec spec) throws InvalidKeySpecException;
 
     protected abstract PublicKey createPublic(StatefulHBSPublicKeySpec spec) throws InvalidKeySpecException;
@@ -32,6 +36,9 @@ public abstract class AbstractStatefulHBSKeyFactory extends KeyFactorySpi {
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec) throws InvalidKeySpecException {
         if (keySpec == null) {
             throw new InvalidKeySpecException("Key specification cannot be null");
+        }
+        if (!supportsPrivateKeys()) {
+            throw new InvalidKeySpecException("Private keys are not supported");
         }
         if (isPrivateSpec(keySpec)) {
             return createPrivate((StatefulHBSPrivateKeySpec) keySpec);
@@ -56,6 +63,9 @@ public abstract class AbstractStatefulHBSKeyFactory extends KeyFactorySpi {
             throw new InvalidKeySpecException("Key and keySpec cannot be null");
         }
         if (key instanceof AbstractStatefulHBSPrivateKey && StatefulHBSPrivateKeySpec.class.isAssignableFrom(keySpec)) {
+            if (!supportsPrivateKeys()) {
+                throw new InvalidKeySpecException("Private keys are not supported");
+            }
             StatefulHBSPrivateKeySpec spec = toPrivateSpec((AbstractStatefulHBSPrivateKey) key);
             if (keySpec.isInstance(spec)) {
                 return keySpec.cast(spec);
@@ -77,9 +87,38 @@ public abstract class AbstractStatefulHBSKeyFactory extends KeyFactorySpi {
         if (key == null) {
             throw new InvalidKeyException("Key cannot be null");
         }
-        if (key instanceof AbstractStatefulHBSPrivateKey || key instanceof AbstractStatefulHBSPublicKey) {
+        if (key instanceof AbstractStatefulHBSPrivateKey) {
+            if (!supportsPrivateKeys()) {
+                throw new InvalidKeyException("Private keys are not supported");
+            }
+            return key;
+        }
+        if (key instanceof AbstractStatefulHBSPublicKey) {
             return key;
         }
         throw new InvalidKeyException("Unsupported key type: " + key.getClass().getName());
+    }
+}
+
+abstract class AbstractPublicOnlyStatefulHBSKeyFactory extends AbstractStatefulHBSKeyFactory {
+    @Override
+    protected final boolean supportsPrivateKeys() {
+        return false;
+    }
+
+    @Override
+    protected final PrivateKey createPrivate(StatefulHBSPrivateKeySpec spec) throws InvalidKeySpecException {
+        throw new InvalidKeySpecException("Private keys are not supported");
+    }
+
+    @Override
+    protected final boolean isPrivateSpec(KeySpec spec) {
+        return false;
+    }
+
+    @Override
+    protected final StatefulHBSPrivateKeySpec toPrivateSpec(AbstractStatefulHBSPrivateKey key)
+            throws InvalidKeySpecException {
+        throw new InvalidKeySpecException("Private keys are not supported");
     }
 }

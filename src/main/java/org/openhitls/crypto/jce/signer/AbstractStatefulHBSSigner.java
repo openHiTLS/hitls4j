@@ -29,8 +29,14 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
 
     protected abstract String algorithmName();
 
-    protected abstract StatefulHBSSignResult sign(AbstractStatefulHBSPrivateKey privateKey, byte[] privateState, byte[] data)
-            throws Exception;
+    protected boolean supportsSigning() {
+        return true;
+    }
+
+    protected StatefulHBSSignResult sign(AbstractStatefulHBSPrivateKey privateKey, byte[] privateState, byte[] data)
+            throws Exception {
+        throw new UnsupportedOperationException(algorithmName() + " signing is not supported");
+    }
 
     protected abstract boolean verify(AbstractStatefulHBSPublicKey publicKey, byte[] data, byte[] signature)
             throws Exception;
@@ -57,6 +63,9 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
 
     @Override
     protected void engineInitSign(PrivateKey privateKey, SecureRandom random) throws InvalidKeyException {
+        if (!supportsSigning()) {
+            throw new InvalidKeyException(algorithmName() + " signing is not supported");
+        }
         if (!(privateKey instanceof AbstractStatefulHBSPrivateKey)) {
             throw new InvalidKeyException("Key must be a stateful HBS private key");
         }
@@ -91,6 +100,9 @@ public abstract class AbstractStatefulHBSSigner extends SignatureSpi {
 
     @Override
     protected byte[] engineSign() throws SignatureException {
+        if (!supportsSigning()) {
+            throw new SignatureException(algorithmName() + " signing is not supported");
+        }
         state.ensureSigning(algorithmName());
         if (privateKey == null) {
             throw new SignatureException("Not initialized for signing");

@@ -11,21 +11,30 @@ import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
+import java.util.Locale;
 
 import org.openhitls.crypto.core.NativeResourceUtil;
 import org.openhitls.crypto.core.asymmetric.RSAImpl;
+import org.openhitls.crypto.core.hash.MessageDigestImpl;
 import org.openhitls.crypto.jce.key.RSAKeyUtil;
 
 public class RSASigner extends SignatureSpi {
     private RSAImpl rsaImpl;
     private final String digestAlgorithm;
-    private MessageBuffer messageBuffer;
+    private final MessageDigestImpl messageDigest;
     private final SignatureState state = new SignatureState();
     private RSAPadding.PSSParameterSpec pssParams;
 
     public RSASigner(String digestAlgorithm) {
-        this.digestAlgorithm = digestAlgorithm;
+        String canonicalDigestAlgorithm = requireSupportedDigestAlgorithm(digestAlgorithm);
+        this.digestAlgorithm = canonicalDigestAlgorithm;
         this.rsaImpl = createRSAImpl();
+        try {
+            this.messageDigest = new MessageDigestImpl(canonicalDigestAlgorithm);
+        } catch (RuntimeException | Error e) {
+            NativeResourceUtil.closeSuppressing(rsaImpl, e);
+            throw e;
+        }
     }
 
     protected RSASigner(String digestAlgorithm, RSAPadding.PSSParameterSpec pssParams) {
@@ -104,23 +113,26 @@ public class RSASigner extends SignatureSpi {
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
         state.ensureReadyForUpdate("RSA");
         SignerBuffer.validateUpdateInput(b, off, len);
-        messageBuffer.write(b, off, len);
+        try {
+            messageDigest.update(b, off, len);
+        } catch (RuntimeException e) {
+            throw new SignatureException("Failed to update RSA digest", e);
+        }
     }
 
     @Override
     protected byte[] engineSign() throws SignatureException {
         state.ensureSigning("RSA");
-        byte[] message = null;
+        byte[] digest = null;
         try {
-            message = messageBuffer.toByteArray();
-            return rsaImpl.sign(message);
+            digest = messageDigest.doFinalAndReset();
+            return rsaImpl.signDigest(digest);
         } catch (Exception e) {
             throw new SignatureException("Failed to sign data", e);
         } finally {
-            if (message != null) {
-                Arrays.fill(message, (byte) 0);
+            if (digest != null) {
+                Arrays.fill(digest, (byte) 0);
             }
-            clearMessageBuffer();
         }
     }
 
@@ -129,29 +141,30 @@ public class RSASigner extends SignatureSpi {
         state.ensureVerification("RSA");
 
         if (sigBytes == null) {
-            clearMessageBuffer();
+            resetDigest();
             throw new SignatureException("Signature bytes must not be null");
         }
 
-        byte[] message = null;
+        byte[] digest = null;
         try {
-            message = messageBuffer.toByteArray();
-            return rsaImpl.verify(message, sigBytes);
+            digest = messageDigest.doFinalAndReset();
+            return rsaImpl.verifyDigest(digest, sigBytes);
         } catch (Exception e) {
             throw new SignatureException("Failed to verify signature", e);
         } finally {
-            if (message != null) {
-                Arrays.fill(message, (byte) 0);
+            if (digest != null) {
+                Arrays.fill(digest, (byte) 0);
             }
-            clearMessageBuffer();
         }
     }
 
     @Override
     protected void engineSetParameter(AlgorithmParameterSpec params) throws InvalidParameterException {
         if (params instanceof RSAPadding.PSSParameterSpec) {
-            pssParams = (RSAPadding.PSSParameterSpec) params;
-            rsaImpl.setPSSParameters(pssParams);
+            RSAPadding.PSSParameterSpec newParams = (RSAPadding.PSSParameterSpec) params;
+            validatePSSHashAlgorithm(newParams);
+            pssParams = newParams;
+            rsaImpl.setPSSParameters(newParams);
         } else {
             throw new InvalidParameterException("Only RSAPadding.PSSParameterSpec is supported");
         }
@@ -165,12 +178,6 @@ public class RSASigner extends SignatureSpi {
     @Override
     protected Object engineGetParameter(String param) throws InvalidParameterException {
         throw new InvalidParameterException("Parameters not supported");
-    }
-
-    private void clearMessageBuffer() {
-        if (messageBuffer != null) {
-            messageBuffer.clear();
-        }
     }
 
     private RSAImpl createRSAImpl() {
@@ -187,76 +194,65 @@ public class RSASigner extends SignatureSpi {
     }
 
     private void commitImpl(RSAImpl newImpl, boolean signing) throws InvalidKeyException {
+        resetDigest();
         rsaImpl = NativeResourceUtil.replaceAfterClosing(rsaImpl, newImpl,
                 failure -> new InvalidKeyException("Failed to close previous RSA context", failure));
         if (signing) {
-            state.activateSigning(this::resetMessageBuffer);
+            state.activateSigning();
         } else {
-            state.activateVerification(this::resetMessageBuffer);
+            state.activateVerification();
         }
     }
 
-    private void resetMessageBuffer() {
-        clearMessageBuffer();
-        messageBuffer = new MessageBuffer();
+    private void resetDigest() {
+        messageDigest.reset();
     }
 
-    MessageBufferStatus messageBufferStatus() {
-        return messageBuffer;
+    private void validatePSSHashAlgorithm(RSAPadding.PSSParameterSpec params) {
+        String expectedHash = canonicalDigestAlgorithm(digestAlgorithm);
+        String requestedHash = canonicalDigestAlgorithm(params.getHashAlgorithm());
+        if (!expectedHash.equals(requestedHash)) {
+            throw new InvalidParameterException("PSS hash algorithm " + params.getHashAlgorithm()
+                    + " does not match fixed signature digest " + expectedHash);
+        }
     }
 
-    interface MessageBufferStatus {
-        boolean isCleared();
+    private static String requireSupportedDigestAlgorithm(String algorithm) {
+        String canonical = canonicalDigestAlgorithm(algorithm);
+        if (canonical != null) {
+            switch (canonical) {
+                case "SHA-1":
+                case "SHA-224":
+                case "SHA-256":
+                case "SHA-384":
+                case "SHA-512":
+                case "SM3":
+                    return canonical;
+                default:
+                    break;
+            }
+        }
+        throw new IllegalArgumentException("Unsupported RSA digest: " + algorithm);
     }
 
-    private static final class MessageBuffer implements MessageBufferStatus {
-        private static final int DEFAULT_CAPACITY = 32;
-
-        private byte[] buffer = new byte[DEFAULT_CAPACITY];
-        private int count;
-
-        void write(byte[] input, int offset, int length) {
-            ensureCapacity(count + length);
-            System.arraycopy(input, offset, buffer, count, length);
-            count += length;
+    private static String canonicalDigestAlgorithm(String algorithm) {
+        if (algorithm == null) {
+            return null;
         }
-
-        byte[] toByteArray() {
-            return SignerBuffer.copyOf(buffer, count);
-        }
-
-        void clear() {
-            Arrays.fill(buffer, (byte) 0);
-            count = 0;
-        }
-
-        @Override
-        public boolean isCleared() {
-            if (count != 0) {
-                return false;
-            }
-            for (byte value : buffer) {
-                if (value != 0) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private void ensureCapacity(int minCapacity) {
-            if (minCapacity < 0) {
-                throw new OutOfMemoryError("Required array size too large");
-            }
-            if (minCapacity <= buffer.length) {
-                return;
-            }
-
-            int newCapacity = Math.max(buffer.length << 1, minCapacity);
-            if (newCapacity < 0) {
-                newCapacity = Integer.MAX_VALUE;
-            }
-
-            buffer = SignerBuffer.resize(buffer, newCapacity);
+        String compactName = algorithm.replace("-", "").toUpperCase(Locale.ROOT);
+        switch (compactName) {
+            case "SHA1":
+                return "SHA-1";
+            case "SHA224":
+                return "SHA-224";
+            case "SHA256":
+                return "SHA-256";
+            case "SHA384":
+                return "SHA-384";
+            case "SHA512":
+                return "SHA-512";
+            default:
+                return algorithm;
         }
     }
 

@@ -23,12 +23,12 @@ import java.util.Arrays;
 
 import org.junit.Test;
 import org.openhitls.crypto.jce.interfaces.StatefulHBSPrivateKey;
-import org.openhitls.crypto.jce.key.LMSPrivateKeyImpl;
+import org.openhitls.crypto.jce.key.AbstractStatefulHBSPrivateKey;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
-import org.openhitls.crypto.jce.spec.HSSPrivateKeySpec;
 import org.openhitls.crypto.jce.spec.HSSParameterSpec;
 import org.openhitls.crypto.jce.spec.LMSParameterSpec;
 import org.openhitls.crypto.jce.spec.XMSSMTParameterSpec;
+import org.openhitls.crypto.jce.spec.XMSSMTPrivateKeySpec;
 import org.openhitls.crypto.jce.spec.XMSSParameterSpec;
 import org.openhitls.crypto.jce.state.FileHbsStateStore;
 import org.openhitls.crypto.jce.state.HbsStateRecord;
@@ -52,19 +52,19 @@ public class StatefulHBSTest {
     }
 
     @Test
-    public void testLmsSignVerifyAndStateUpdate() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        assertSignVerifyAndStateUpdate("LMS", keyPair);
-    }
-
-    @Test
-    public void testHssSignVerifyAndStateUpdate() throws Exception {
-        HSSParameterSpec params = new HSSParameterSpec(
-                new String[]{"CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMS_SHA256_M32_H5"},
-                new String[]{"CRYPT_LMOTS_SHA256_N32_W8", "CRYPT_LMOTS_SHA256_N32_W8"});
-        KeyPair keyPair = generate("HSS", params);
-        assertSignVerifyAndStateUpdate("HSS", keyPair);
+    public void testLmsHssVerificationServicesAvailableButSigningAndKeyGenerationUnavailable() throws Exception {
+        assertNotNull(AlgorithmParameters.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(AlgorithmParameters.getInstance("HSS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(KeyFactory.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(KeyFactory.getInstance("HSS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(Signature.getInstance("SHA256withLMS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(Signature.getInstance("HSS", HiTls4jProvider.PROVIDER_NAME));
+        assertNotNull(Signature.getInstance("SHA256withHSS", HiTls4jProvider.PROVIDER_NAME));
+        assertKeyPairGeneratorUnavailable("LMS");
+        assertKeyPairGeneratorUnavailable("HSS");
+        assertSigningUnavailable("LMS");
+        assertSigningUnavailable("HSS");
     }
 
     @Test
@@ -81,12 +81,6 @@ public class StatefulHBSTest {
 
     @Test
     public void testTamperedMessagesAndSignaturesAreRejected() throws Exception {
-        assertTamperingRejected("LMS",
-                generate("LMS", new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8")));
-        assertTamperingRejected("HSS",
-                generate("HSS", new HSSParameterSpec(
-                        new String[]{"CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMS_SHA256_M32_H5"},
-                        new String[]{"CRYPT_LMOTS_SHA256_N32_W8", "CRYPT_LMOTS_SHA256_N32_W8"})));
         assertTamperingRejected("XMSS",
                 generate("XMSS", new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256")));
         assertTamperingRejected("XMSSMT",
@@ -124,9 +118,9 @@ public class StatefulHBSTest {
 
     @Test
     public void testUnboundSigningRequiresExplicitUnsafeMode() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        Signature signer = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        Signature signer = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         signer.initSign(keyPair.getPrivate());
         signer.update("requires-state-store".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
@@ -140,19 +134,19 @@ public class StatefulHBSTest {
 
     @Test
     public void testSignFailureClearsBufferedInputBeforeReuse() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        LMSPrivateKeyImpl privateKey = (LMSPrivateKeyImpl) keyPair.getPrivate();
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        AbstractStatefulHBSPrivateKey privateKey = (AbstractStatefulHBSPrivateKey) keyPair.getPrivate();
 
         InMemoryHbsStateStore store = new InMemoryHbsStateStore();
-        HbsStateRecord initial = HbsStateRecord.create("LMS", params.getName(),
+        HbsStateRecord initial = HbsStateRecord.create("XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), privateKey.getEncoded());
-        HbsStateRecord mismatched = new HbsStateRecord(initial.getKeyId(), "LMS", "WRONG-PARAMETER-SET",
+        HbsStateRecord mismatched = new HbsStateRecord(initial.getKeyId(), "XMSS", "WRONG-PARAMETER-SET",
                 keyPair.getPublic().getEncoded(), privateKey.getEncoded(), -1L, 0L);
         store.save(mismatched);
         privateKey.bindStateStore(store, mismatched.getKeyId());
 
-        Signature signer = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        Signature signer = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         signer.initSign(privateKey);
         signer.update("failed-message".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         try {
@@ -162,7 +156,7 @@ public class StatefulHBSTest {
             assertTrue(expected.getMessage().contains("parameter set"));
         }
 
-        HbsStateRecord corrected = new HbsStateRecord(initial.getKeyId(), "LMS", params.getName(),
+        HbsStateRecord corrected = new HbsStateRecord(initial.getKeyId(), "XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), privateKey.getEncoded(), -1L, 1L);
         store.save(corrected);
 
@@ -170,36 +164,36 @@ public class StatefulHBSTest {
         signer.update(message);
         byte[] signature = signer.sign();
 
-        assertVerify("LMS", keyPair, message, signature);
+        assertVerify("XMSS", keyPair, message, signature);
     }
 
     @Test
-    public void testLmsStateStoreCommitBeforeSignatureReturn() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        LMSPrivateKeyImpl privateKey = (LMSPrivateKeyImpl) keyPair.getPrivate();
+    public void testXmssStateStoreCommitBeforeSignatureReturn() throws Exception {
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        AbstractStatefulHBSPrivateKey privateKey = (AbstractStatefulHBSPrivateKey) keyPair.getPrivate();
 
         InMemoryHbsStateStore store = new InMemoryHbsStateStore();
-        HbsStateRecord initial = HbsStateRecord.create("LMS", params.getName(),
+        HbsStateRecord initial = HbsStateRecord.create("XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), privateKey.getEncoded());
         store.save(initial);
         privateKey.bindStateStore(store, initial.getKeyId());
 
         byte[] message = "state-store-message".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] signature = sign("LMS", privateKey, message);
+        byte[] signature = sign("XMSS", privateKey, message);
 
         HbsStateRecord persisted = store.load(initial.getKeyId());
         assertNotNull(signature);
         assertFalse(Arrays.equals(initial.getPrivateState(), persisted.getPrivateState()));
         assertArrayEquals(privateKey.getEncoded(), persisted.getPrivateState());
-        assertVerify("LMS", keyPair, message, signature);
+        assertVerify("XMSS", keyPair, message, signature);
     }
 
     @Test
     public void testStateStoresRejectRollbackRecords() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        HbsStateRecord initial = HbsStateRecord.create("LMS", params.getName(),
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        HbsStateRecord initial = HbsStateRecord.create("XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), keyPair.getPrivate().getEncoded());
         HbsStateRecord advanced = initial.withPrivateState(flipFirstByte(initial.getPrivateState()), -1L);
 
@@ -217,11 +211,11 @@ public class StatefulHBSTest {
 
     @Test
     public void testFileStateStoreRejectsMismatchedLoadedKeyId() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        HbsStateRecord initial = HbsStateRecord.create("LMS", params.getName(),
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        HbsStateRecord initial = HbsStateRecord.create("XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), keyPair.getPrivate().getEncoded());
-        HbsStateRecord mismatched = new HbsStateRecord(repeat('f', 64), "LMS", params.getName(),
+        HbsStateRecord mismatched = new HbsStateRecord(repeat('f', 64), "XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), keyPair.getPrivate().getEncoded(), -1L, 0L);
 
         Path dir = Files.createTempDirectory("hitls4j-hbs-state-mismatch");
@@ -241,9 +235,9 @@ public class StatefulHBSTest {
 
     @Test
     public void testFileStateStoreSupportsHmacIntegrityKey() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        HbsStateRecord initial = HbsStateRecord.create("LMS", params.getName(),
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        HbsStateRecord initial = HbsStateRecord.create("XMSS", params.getName(),
                 keyPair.getPublic().getEncoded(), keyPair.getPrivate().getEncoded());
 
         Path dir = Files.createTempDirectory("hitls4j-hbs-state-hmac");
@@ -263,29 +257,29 @@ public class StatefulHBSTest {
 
     @Test
     public void testSegmentedUpdatesProduceValidSignature() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
         enableUnsafeInMemorySigning(keyPair.getPrivate());
         byte[] message = "segmented-stateful-hbs-message".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
-        Signature signer = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        Signature signer = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         signer.initSign(keyPair.getPrivate());
         signer.update(message, 0, 9);
         signer.update(message, 9, message.length - 9);
         byte[] signature = signer.sign();
 
-        assertVerify("LMS", keyPair, message, signature);
+        assertVerify("XMSS", keyPair, message, signature);
     }
 
     @Test
     public void testVerifyRejectsNullSignature() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
         enableUnsafeInMemorySigning(keyPair.getPrivate());
         byte[] validMessage = "message-after-null-signature".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] validSignature = sign("LMS", keyPair.getPrivate(), validMessage);
+        byte[] validSignature = sign("XMSS", keyPair.getPrivate(), validMessage);
 
-        Signature verifier = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        Signature verifier = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         verifier.initVerify(keyPair.getPublic());
         verifier.update("null-signature".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
@@ -302,29 +296,29 @@ public class StatefulHBSTest {
 
     @Test
     public void testSignatureObjectsResetBufferedInputForReuse() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
         enableUnsafeInMemorySigning(keyPair.getPrivate());
         byte[] previous = "previous-message".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         byte[] current = "current-message".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         byte[] combined = concat(previous, current);
 
-        Signature reusedSigner = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        Signature reusedSigner = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         reusedSigner.initSign(keyPair.getPrivate());
         reusedSigner.update(previous);
         byte[] previousSignature = reusedSigner.sign();
         reusedSigner.update(current);
         byte[] currentSignature = reusedSigner.sign();
 
-        assertTrue(verify("LMS", keyPair.getPublic(), previous, previousSignature));
+        assertTrue(verify("XMSS", keyPair.getPublic(), previous, previousSignature));
         assertTrue("Reused signer should sign only the new message",
-                verify("LMS", keyPair.getPublic(), current, currentSignature));
+                verify("XMSS", keyPair.getPublic(), current, currentSignature));
         assertFalse("Reused signer must not sign previous || current",
-                verify("LMS", keyPair.getPublic(), combined, currentSignature));
+                verify("XMSS", keyPair.getPublic(), combined, currentSignature));
 
-        byte[] combinedSignature = sign("LMS", keyPair.getPrivate(), combined);
+        byte[] combinedSignature = sign("XMSS", keyPair.getPrivate(), combined);
 
-        Signature reusedVerifier = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        Signature reusedVerifier = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         reusedVerifier.initVerify(keyPair.getPublic());
         reusedVerifier.update(previous);
         assertTrue(reusedVerifier.verify(previousSignature));
@@ -340,13 +334,13 @@ public class StatefulHBSTest {
 
     @Test
     public void testFailedInitPreservesPreviousState() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
         enableUnsafeInMemorySigning(keyPair.getPrivate());
         KeyPair rsaKeyPair = generateRsaKeyPair();
         byte[] message = "stateful-hbs-after-failed-init".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
-        Signature signer = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        Signature signer = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         signer.initSign(keyPair.getPrivate());
         signer.update(message);
         try {
@@ -356,10 +350,10 @@ public class StatefulHBSTest {
             // Expected.
         }
         byte[] preservedSignature = signer.sign();
-        assertVerify("LMS", keyPair, message, preservedSignature);
+        assertVerify("XMSS", keyPair, message, preservedSignature);
 
-        byte[] signature = sign("LMS", keyPair.getPrivate(), message);
-        Signature verifier = Signature.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        byte[] signature = sign("XMSS", keyPair.getPrivate(), message);
+        Signature verifier = Signature.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
         verifier.initVerify(keyPair.getPublic());
         verifier.update(message);
         try {
@@ -374,12 +368,12 @@ public class StatefulHBSTest {
 
     @Test
     public void testKeyFactoryRejectsMismatchedStatefulKeySpecType() throws Exception {
-        LMSParameterSpec params = new LMSParameterSpec("CRYPT_LMS_SHA256_M32_H5", "CRYPT_LMOTS_SHA256_N32_W8");
-        KeyPair keyPair = generate("LMS", params);
-        KeyFactory keyFactory = KeyFactory.getInstance("LMS", HiTls4jProvider.PROVIDER_NAME);
+        XMSSParameterSpec params = new XMSSParameterSpec("CRYPT_XMSS_SHA2_10_256");
+        KeyPair keyPair = generate("XMSS", params);
+        KeyFactory keyFactory = KeyFactory.getInstance("XMSS", HiTls4jProvider.PROVIDER_NAME);
 
         try {
-            keyFactory.getKeySpec(keyPair.getPrivate(), HSSPrivateKeySpec.class);
+            keyFactory.getKeySpec(keyPair.getPrivate(), XMSSMTPrivateKeySpec.class);
             fail("Expected mismatched stateful HBS key spec type to be rejected");
         } catch (java.security.spec.InvalidKeySpecException expected) {
             assertTrue(expected.getMessage().contains("does not match"));
@@ -442,6 +436,25 @@ public class StatefulHBSTest {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
         generator.initialize(2048);
         return generator.generateKeyPair();
+    }
+
+    private static void assertKeyPairGeneratorUnavailable(String algorithm) throws Exception {
+        try {
+            KeyPairGenerator.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
+            fail("Expected " + algorithm + " key generation to be unavailable");
+        } catch (java.security.NoSuchAlgorithmException expected) {
+            // Expected.
+        }
+    }
+
+    private static void assertSigningUnavailable(String algorithm) throws Exception {
+        Signature signer = Signature.getInstance(algorithm, HiTls4jProvider.PROVIDER_NAME);
+        try {
+            signer.initSign(generateRsaKeyPair().getPrivate());
+            fail("Expected " + algorithm + " signing to be unavailable");
+        } catch (InvalidKeyException expected) {
+            assertTrue(expected.getMessage().contains("signing is not supported"));
+        }
     }
 
     private static void assertSignVerifyAndStateUpdate(String algorithm, KeyPair keyPair) throws Exception {
@@ -540,4 +553,5 @@ public class StatefulHBSTest {
             // expected
         }
     }
+
 }
