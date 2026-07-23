@@ -21,6 +21,8 @@ public class ECDSASigner extends SignatureSpi {
     private byte[] userId;
     private final int algorithm;
     private final boolean sm2Signature;
+    private final SignatureDigest signatureDigest;
+    private boolean bufferedInputUpdated;
 
     public ECDSASigner(String algorithmName) {
         this(algorithmName, "SM3".equals(algorithmName));
@@ -29,6 +31,7 @@ public class ECDSASigner extends SignatureSpi {
     private ECDSASigner(String algorithmName, boolean sm2Signature) {
         this.algorithm = getHashAlgorithm(algorithmName);
         this.sm2Signature = sm2Signature;
+        this.signatureDigest = sm2Signature ? null : new SignatureDigest(getDigestAlgorithm(algorithmName), "ECDSA");
     }
 
     // Inner classes for different signature algorithms
@@ -138,36 +141,53 @@ public class ECDSASigner extends SignatureSpi {
     @Override
     protected void engineUpdate(byte[] b, int off, int len) throws SignatureException {
         state.ensureReadyForUpdate("ECDSA");
-        buffer = SignerBuffer.append(buffer, b, off, len);
+        if (sm2Signature) {
+            buffer = SignerBuffer.append(buffer, b, off, len);
+            bufferedInputUpdated = true;
+        } else {
+            signatureDigest.update(b, off, len);
+        }
     }
 
     @Override
     protected byte[] engineSign() throws SignatureException {
         state.ensureSigning("ECDSA");
-        if (buffer == null) {
+        if (!hasInput()) {
             throw new SignatureException("No data to sign");
         }
+        byte[] digest = null;
         try {
-            return ecdsaImpl.signData(buffer);
+            if (sm2Signature) {
+                return ecdsaImpl.signData(buffer);
+            }
+            digest = signatureDigest.finishAndReset();
+            return ecdsaImpl.signDigest(digest);
         } catch (Exception e) {
             throw new SignatureException("Signing failed", e);
         } finally {
-            clearBuffer();
+            SignatureDigest.clear(digest);
+            finishOperation();
         }
     }
 
     @Override
     protected boolean engineVerify(byte[] sigBytes) throws SignatureException {
         state.ensureVerification("ECDSA");
-        if (buffer == null) {
+        if (!hasInput()) {
             throw new SignatureException("No data to verify");
         }
+        byte[] digest = null;
         try {
-            return ecdsaImpl.verifySignature(buffer, sigBytes);
+            if (sm2Signature) {
+                return ecdsaImpl.verifySignature(buffer, sigBytes);
+            }
+            digest = signatureDigest.finishAndReset();
+            return ecdsaImpl.verifyDigest(digest, sigBytes);
         } catch (Exception e) {
             throw new SignatureException("Verification failed", e);
         } finally {
-            clearBuffer();
+            SignatureDigest.clear(digest);
+            finishOperation();
         }
     }
 
@@ -175,13 +195,30 @@ public class ECDSASigner extends SignatureSpi {
         buffer = SignerBuffer.clear(buffer);
     }
 
+    void resetInput() {
+        clearBuffer();
+        if (signatureDigest != null) {
+            signatureDigest.reset();
+        }
+        bufferedInputUpdated = false;
+    }
+
+    private void finishOperation() {
+        clearBuffer();
+        bufferedInputUpdated = false;
+    }
+
+    private boolean hasInput() {
+        return sm2Signature ? bufferedInputUpdated : signatureDigest.hasInput();
+    }
+
     private void commitImpl(ECDSAImpl newImpl, boolean signing) throws InvalidKeyException {
-        ecdsaImpl = NativeResourceUtil.replaceAfterClosing(ecdsaImpl, newImpl,
-                failure -> new InvalidKeyException("Failed to close previous ECDSA context", failure));
+        ecdsaImpl = SignatureState.replaceAfterReset(
+                ecdsaImpl, newImpl, this::resetInput, "ECDSA");
         if (signing) {
-            state.activateSigning(this::clearBuffer);
+            state.activateSigning();
         } else {
-            state.activateVerification(this::clearBuffer);
+            state.activateVerification();
         }
     }
 
@@ -277,6 +314,19 @@ public class ECDSASigner extends SignatureSpi {
                 return CryptoConstants.HASH_ALG_SHA512;
             default:
                 throw new IllegalArgumentException("Unsupported hash algorithm: " + algorithmName);
+        }
+    }
+
+    private static String getDigestAlgorithm(String algorithmName) {
+        switch (algorithmName) {
+            case "SHA256":
+                return "SHA-256";
+            case "SHA384":
+                return "SHA-384";
+            case "SHA512":
+                return "SHA-512";
+            default:
+                throw new IllegalArgumentException("Unsupported ECDSA digest: " + algorithmName);
         }
     }
 }

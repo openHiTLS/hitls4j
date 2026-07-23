@@ -169,6 +169,22 @@ JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaVeri
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    ecdsaSignDigest
+ * Signature: (J[B)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaSignDigest
+  (JNIEnv *, jclass, jlong, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    ecdsaVerifyDigest
+ * Signature: (J[B[B)Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_openhitls_crypto_core_CryptoNative_ecdsaVerifyDigest
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    ecEncodePublicKey
  * Signature: (Ljava/lang/String;[B)[B
  */
@@ -350,6 +366,15 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetParamet
  */
 JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
   (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jbyteArray);
+
+/*
+ * Class:     org_openhitls_crypto_core_CryptoNative
+ * Method:    rsaSetCrtKeys
+ * Signature: (J[B[B[B[B[B[B[B[B)V
+ */
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetCrtKeys
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray,
+   jbyteArray, jbyteArray);
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
