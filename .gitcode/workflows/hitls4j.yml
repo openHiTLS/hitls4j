@@ -11,17 +11,11 @@ defaults:
 
 jobs:
   build-and-test:
+    name: Build and test
     runs-on: [ubuntu-latest, x64, small]
     steps:
       - name: Checkout source code
         uses: checkout
-
-      - name: Setup JDK 21
-        uses: setup-java
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
 
       - name: Build native dependencies and run tests
         run: |
@@ -29,6 +23,9 @@ jobs:
 
           test -f pom.xml
           test -d src/main/java
+
+          export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+          export PATH="$JAVA_HOME/bin:$PATH"
 
           git --version
           gcc --version
