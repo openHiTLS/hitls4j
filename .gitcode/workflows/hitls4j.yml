@@ -1,0 +1,71 @@
+name: hitls4j-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-test:
+    runs-on: [ubuntu-latest, x64, small]
+    steps:
+      - name: Checkout source code
+        uses: checkout
+
+      - name: Setup JDK 21
+        uses: setup-java
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build native dependencies and run tests
+        run: |
+          set -euxo pipefail
+
+          test -f pom.xml
+          test -d src/main/java
+
+          git --version
+          gcc --version
+          cmake --version
+          mvn -version
+          java -version
+
+          test -d openhitls/.git || git clone https://gitcode.com/openHiTLS/openhitls.git openhitls
+          test -d sdfp/.git || git clone https://gitcode.com/openHiTLS/sdfp.git sdfp
+          test -d sdfx/.git || git clone -b simulator https://gitcode.com/openHiTLS/sdfx.git sdfx
+
+          cd openhitls/testcode/script
+          bash build_hitls.sh debug
+          cd ../../..
+
+          test -f openhitls/build/libhitls_bsl.so
+          test -f openhitls/build/libhitls_crypto.so
+          test -f openhitls/build/libhitls_pki.so
+          test -f openhitls/build/libhitls_tls.so
+          test -d openhitls/include/bsl
+          test -d openhitls/include/crypto
+
+          mkdir -p sdfx/third_party
+          rm -f sdfx/third_party/openhitls
+          ln -s ../../openhitls sdfx/third_party/openhitls
+          cmake -S sdfx -B sdfx/build-noasan
+          cmake --build sdfx/build-noasan --parallel
+          test -f sdfx/build-noasan/libsdf_openhitls.so
+
+          cmake -S sdfp -B sdfp/build-noasan -DHITLS_DIR="$PWD/openhitls" -DBUILD_DEMOS=ON
+          cmake --build sdfp/build-noasan --parallel
+          test -f sdfp/build-noasan/libSDFProv.so
+
+          mvn -B -Dopenhitls.root="$PWD/openhitls" test
+          mvn -B -Dopenhitls.root="$PWD/openhitls" \
+            -Dtest=ProviderTest \
+            -Dsdfp.provider.dir="$PWD/sdfp/build-noasan" \
+            -Dsdfp.provider.name=SDFProv \
+            -Dsdf.lib.path="$PWD/sdfx/build-noasan/libsdf_openhitls.so" \
+            test
