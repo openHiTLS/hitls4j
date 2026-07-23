@@ -17,15 +17,18 @@ jobs:
       - name: Checkout source code
         uses: checkout
 
+      - name: Setup env
+        uses: setup-jdk
+        with:
+          jdk-version: '17'
+          maven-version: '3.9.15'
+
       - name: Build native dependencies and run tests
         run: |
           set -euxo pipefail
 
           test -f pom.xml
           test -d src/main/java
-
-          export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
-          export PATH="$JAVA_HOME/bin:$PATH"
 
           git --version
           gcc --version
