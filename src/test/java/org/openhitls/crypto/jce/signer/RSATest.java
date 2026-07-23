@@ -366,7 +366,7 @@ public class RSATest {
     }
 
     @Test
-    public void testLowLevelRSAImplRequiresPublicExponentWhenSettingKeys() throws Exception {
+    public void testLowLevelRSAImplUsesDedicatedKeySetters() throws Exception {
         byte[] modulus = new byte[] {0x01};
         byte[] privateExponent = new byte[] {0x01};
 
@@ -377,26 +377,20 @@ public class RSATest {
             // Expected.
         }
 
-        try {
-            RSAImpl.class.getMethod("setKeys", byte[].class, byte[].class);
-            fail("Expected exponent-less RSAImpl.setKeys to be removed");
-        } catch (NoSuchMethodException expected) {
-            // Expected.
-        }
+        try (RSAImpl rsa = new RSAImpl()) {
+            try {
+                rsa.setPublicKey(modulus, null);
+                fail("Expected null public exponent to be rejected");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("public key components"));
+            }
 
-        RSAImpl rsa = new RSAImpl();
-        try {
-            rsa.setKeys(modulus, privateExponent, null);
-            fail("Expected null public exponent to be rejected");
-        } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("public exponent"));
-        }
-
-        try {
-            rsa.setKeys(modulus, privateExponent, new byte[0]);
-            fail("Expected empty public exponent to be rejected");
-        } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("public exponent"));
+            try {
+                rsa.setPrivateKey(modulus, privateExponent, new byte[0]);
+                fail("Expected empty public exponent to be rejected");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("private key components"));
+            }
         }
     }
 
@@ -419,7 +413,7 @@ public class RSATest {
 
         byte[] signature;
         try (RSAImpl rsa = new RSAImpl()) {
-            rsa.setCrtKeys(components[0], components[1], components[2], components[3],
+            rsa.setPrivateKey(components[0], components[1], components[2], components[3],
                     components[4], components[5], components[6], components[7]);
             rsa.setDigestAlgorithm("SHA-256");
             signature = rsa.sign(data);
@@ -451,7 +445,7 @@ public class RSATest {
 
         byte[] signature;
         try (RSAImpl rsa = new RSAImpl()) {
-            rsa.setCrtKeys(components[0], components[1], components[2], components[3],
+            rsa.setPrivateKey(components[0], components[1], components[2], components[3],
                     components[4], null, null, null);
             rsa.setDigestAlgorithm("SHA-256");
             signature = rsa.sign(data);
@@ -470,7 +464,7 @@ public class RSATest {
         byte[] component = new byte[] {0x01};
         try (RSAImpl rsa = new RSAImpl()) {
             try {
-                rsa.setCrtKeys(component, component, component, component, component,
+                rsa.setPrivateKey(component, component, component, component, component,
                         component, null, null);
                 fail("Expected partial CRT values to be rejected");
             } catch (IllegalArgumentException expected) {
@@ -480,14 +474,14 @@ public class RSATest {
     }
 
     @Test
-    public void testNativeRSASetCrtKeysRejectsPartialCrtValues() {
+    public void testNativeRSASetPrivateKeyRejectsPartialCrtValues() {
         byte[] component = new byte[] {0x01};
         long ctx = CryptoNative.rsaCreateContext();
         try {
             try {
-                CryptoNative.rsaSetCrtKeys(ctx, component, component, component, component,
+                CryptoNative.rsaSetPrivateKey(ctx, component, component, component, component,
                         component, component, null, null);
-                fail("Expected native rsaSetCrtKeys to reject partial CRT values");
+                fail("Expected native rsaSetPrivateKey to reject partial CRT values");
             } catch (IllegalArgumentException expected) {
                 assertTrue(expected.getMessage().contains("all provided or all omitted"));
             }
@@ -497,26 +491,51 @@ public class RSATest {
     }
 
     @Test
-    public void testNativeRSASetKeysRequiresPublicExponent() {
+    public void testNativeRSASetPublicKeyRequiresComponents() {
         byte[] modulus = new byte[] {0x01};
-        byte[] privateExponent = new byte[] {0x01};
+
         long ctx = CryptoNative.rsaCreateContext();
         try {
             try {
-                CryptoNative.rsaSetKeys(ctx, modulus, privateExponent, null);
-                fail("Expected native rsaSetKeys to reject null public exponent");
+                CryptoNative.rsaSetPublicKey(ctx, modulus, null);
+                fail("Expected native rsaSetPublicKey to reject null public exponent");
             } catch (IllegalArgumentException expected) {
-                assertTrue(expected.getMessage().contains("public exponent"));
+                assertTrue(expected.getMessage().contains("public key components"));
             }
 
             try {
-                CryptoNative.rsaSetKeys(ctx, modulus, privateExponent, new byte[0]);
-                fail("Expected native rsaSetKeys to reject empty public exponent");
+                CryptoNative.rsaSetPublicKey(ctx, new byte[0], modulus);
+                fail("Expected native rsaSetPublicKey to reject empty modulus");
             } catch (IllegalArgumentException expected) {
-                assertTrue(expected.getMessage().contains("public exponent"));
+                assertTrue(expected.getMessage().contains("public key components"));
             }
         } finally {
             CryptoNative.rsaFreeContext(ctx);
+        }
+    }
+
+    @Test
+    public void testRSAImplDelegatesKeyReplacementToNativeContext() throws Exception {
+        KeyPair publicKeyPair = generateKeyPair();
+        KeyPair privateKeyPair = generateKeyPair();
+        RSAPublicKey publicKey = (RSAPublicKey) publicKeyPair.getPublic();
+        RSAPrivateCrtKey privateKey = (RSAPrivateCrtKey) privateKeyPair.getPrivate();
+
+        byte[] publicModulus = RSAKeyUtil.toUnsignedBytes(publicKey.getModulus());
+        byte[] publicExponent = RSAKeyUtil.toUnsignedBytes(publicKey.getPublicExponent());
+        byte[] signingModulus = RSAKeyUtil.toUnsignedBytes(privateKey.getModulus());
+        byte[] signingPrivateExponent = RSAKeyUtil.toUnsignedBytes(privateKey.getPrivateExponent());
+        byte[] signingPublicExponent = RSAKeyUtil.toUnsignedBytes(privateKey.getPublicExponent());
+        byte[] plaintext = "RSA native key replacement".getBytes(StandardCharsets.UTF_8);
+
+        try (RSAImpl rsa = new RSAImpl()) {
+            rsa.setPublicKey(publicModulus, publicExponent);
+            rsa.setPrivateKey(signingModulus, signingPrivateExponent, signingPublicExponent);
+            rsa.setDigestAlgorithm("SHA-256");
+            assertTrue("The replacement private key must be active in the native context",
+                    verify("SHA256withRSA", privateKeyPair.getPublic(), plaintext, rsa.sign(plaintext)));
+        } finally {
+            Arrays.fill(signingPrivateExponent, (byte) 0);
         }
     }
 

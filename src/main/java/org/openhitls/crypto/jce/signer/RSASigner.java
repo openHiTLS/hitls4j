@@ -59,7 +59,7 @@ public class RSASigner extends SignatureSpi {
 
         RSAImpl newImpl = createRSAImpl();
         try {
-            newImpl.setKeys(modulus, null, publicExponent);
+            newImpl.setPublicKey(modulus, publicExponent);
             newImpl.setDigestAlgorithm(digestAlgorithm);
             commitImpl(newImpl, false);
             newImpl = null;
@@ -99,10 +99,10 @@ public class RSASigner extends SignatureSpi {
                 primeExponentP = RSAKeyUtil.toUnsignedBytes(crtKey.getPrimeExponentP());
                 primeExponentQ = RSAKeyUtil.toUnsignedBytes(crtKey.getPrimeExponentQ());
                 crtCoefficient = RSAKeyUtil.toUnsignedBytes(crtKey.getCrtCoefficient());
-                newImpl.setCrtKeys(modulus, privateExponent, publicExponent,
+                newImpl.setPrivateKey(modulus, privateExponent, publicExponent,
                         primeP, primeQ, primeExponentP, primeExponentQ, crtCoefficient);
             } else {
-                newImpl.setKeys(modulus, privateExponent, publicExponent);
+                newImpl.setPrivateKey(modulus, privateExponent, publicExponent);
             }
             newImpl.setDigestAlgorithm(digestAlgorithm);
             commitImpl(newImpl, true);

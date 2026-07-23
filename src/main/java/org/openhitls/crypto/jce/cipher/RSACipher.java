@@ -111,13 +111,13 @@ public class RSACipher extends CipherSpi {
             if (opmode == Cipher.ENCRYPT_MODE) {
                 RSAPublicKey pubKey = (RSAPublicKey) key;
                 byte[] modulus = RSAKeyUtil.toUnsignedBytes(pubKey.getModulus());
-                rsaImpl.setKeys(modulus, null, e);
+                rsaImpl.setPublicKey(modulus, e);
             } else {
                 RSAPrivateKey privKey = (RSAPrivateKey) key;
                 byte[] modulus = RSAKeyUtil.toUnsignedBytes(privKey.getModulus());
                 byte[] privateExponent = RSAKeyUtil.toUnsignedBytes(privKey.getPrivateExponent());
                 try {
-                    rsaImpl.setKeys(modulus, privateExponent, e);
+                    rsaImpl.setPrivateKey(modulus, privateExponent, e);
                 } finally {
                     Arrays.fill(privateExponent, (byte) 0);
                 }
