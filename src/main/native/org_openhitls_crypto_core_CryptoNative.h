@@ -361,20 +361,19 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetParamet
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
- * Method:    rsaSetKeys
- * Signature: (J[B[B[B)V
+ * Method:    rsaSetPublicKey
+ * Signature: (J[B[B)V
  */
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetKeys
-  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jbyteArray);
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetPublicKey
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray);
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
- * Method:    rsaSetCrtKeys
+ * Method:    rsaSetPrivateKey
  * Signature: (J[B[B[B[B[B[B[B[B)V
  */
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetCrtKeys
-  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray,
-   jbyteArray, jbyteArray);
+JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaSetPrivateKey
+  (JNIEnv *, jclass, jlong, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray, jbyteArray);
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative

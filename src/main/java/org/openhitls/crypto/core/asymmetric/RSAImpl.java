@@ -1,6 +1,5 @@
 package org.openhitls.crypto.core.asymmetric;
 
-import java.security.InvalidKeyException;
 import java.security.SignatureException;
 import org.openhitls.crypto.core.CryptoNative;
 import org.openhitls.crypto.core.NativeResource;
@@ -11,11 +10,7 @@ import org.openhitls.crypto.jce.signer.RSAPadding;
 import org.openhitls.crypto.jce.signer.RSAPadding.PSSParameterSpec;
 
 public class RSAImpl extends NativeResource {
-    private static final String PUBLIC_EXPONENT_REQUIRED =
-            "RSA public exponent is required; use setKeys(publicKey, privateKey, publicExponent)";
     private boolean parametersSet = false;
-    private byte[] publicKey;
-    private byte[] privateKey;
     private String digestAlgorithm = "SHA256"; // Default to SHA256
     private int paddingMode = RSAPadding.PADDING_PKCS1;
     private PSSParameterSpec pssParams;
@@ -27,7 +22,12 @@ public class RSAImpl extends NativeResource {
     public RSAImpl(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
         super(createContextForKeys(publicKey, privateKey, publicExponent), RSAImpl::freeNativeContext);
         try {
-            setKeys(publicKey, privateKey, publicExponent);
+            if (privateKey != null) {
+                setPrivateKey(publicKey, privateKey, publicExponent);
+            }
+            if (publicKey != null) {
+                setPublicKey(publicKey, publicExponent);
+            }
         } catch (RuntimeException | Error e) {
             NativeResourceUtil.closeSuppressing(this, e);
             throw e;
@@ -40,41 +40,35 @@ public class RSAImpl extends NativeResource {
         }
     }
 
-    public void setKeys(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
-        requirePublicExponent(publicKey, privateKey, publicExponent);
-        KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(publicKey, privateKey);
-        boolean updated = false;
-        try {
-            CryptoNative.rsaSetKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey(), publicExponent);
-            updated = true;
-            SensitiveDataUtil.clear(this.privateKey);
-            this.publicKey = keyMaterial.publicKey();
-            this.privateKey = keyMaterial.privateKey();
-        } finally {
-            if (!updated) {
-                keyMaterial.clearPrivate();
-            }
-        }
+    public void setPublicKey(byte[] modulus, byte[] publicExponent) {
+        requirePublicKeyComponents(modulus, publicExponent);
+        CryptoNative.rsaSetPublicKey(nativeContext, modulus, publicExponent);
     }
 
-    public void setCrtKeys(byte[] modulus, byte[] privateExponent, byte[] publicExponent,
+    public void setPrivateKey(byte[] modulus, byte[] privateExponent, byte[] publicExponent,
             byte[] primeP, byte[] primeQ, byte[] primeExponentP, byte[] primeExponentQ,
             byte[] crtCoefficient) {
         requireCrtKeyComponents(modulus, privateExponent, publicExponent, primeP, primeQ,
                 primeExponentP, primeExponentQ, crtCoefficient);
+        setPrivateKeyInternal(modulus, privateExponent, publicExponent, primeP, primeQ,
+                primeExponentP, primeExponentQ, crtCoefficient);
+    }
+
+    public void setPrivateKey(byte[] modulus, byte[] privateExponent, byte[] publicExponent) {
+        requirePrivateKeyComponents(modulus, privateExponent, publicExponent);
+        setPrivateKeyInternal(modulus, privateExponent, publicExponent,
+                null, null, null, null, null);
+    }
+
+    private void setPrivateKeyInternal(byte[] modulus, byte[] privateExponent, byte[] publicExponent,
+            byte[] primeP, byte[] primeQ, byte[] primeExponentP, byte[] primeExponentQ,
+            byte[] crtCoefficient) {
         KeyMaterial keyMaterial = SensitiveDataUtil.copyKeyMaterial(modulus, privateExponent);
-        boolean updated = false;
         try {
-            CryptoNative.rsaSetCrtKeys(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey(),
+            CryptoNative.rsaSetPrivateKey(nativeContext, keyMaterial.publicKey(), keyMaterial.privateKey(),
                     publicExponent, primeP, primeQ, primeExponentP, primeExponentQ, crtCoefficient);
-            updated = true;
-            SensitiveDataUtil.clear(this.privateKey);
-            this.publicKey = keyMaterial.publicKey();
-            this.privateKey = keyMaterial.privateKey();
         } finally {
-            if (!updated) {
-                keyMaterial.clearPrivate();
-            }
+            keyMaterial.clearPrivate();
         }
     }
 
@@ -128,16 +122,10 @@ public class RSAImpl extends NativeResource {
     }
 
     public byte[] encrypt(byte[] data) {
-        if (publicKey == null) {
-            throw new IllegalStateException("Public key must be set before encryption");
-        }
         return CryptoNative.rsaEncrypt(nativeContext, data);
     }
 
     public byte[] decrypt(byte[] encryptedData) {
-        if (privateKey == null) {
-            throw new IllegalStateException("Private key must be set before decryption");
-        }
         return CryptoNative.rsaDecrypt(nativeContext, encryptedData);
     }
 
@@ -157,34 +145,26 @@ public class RSAImpl extends NativeResource {
         this.paddingMode = RSAPadding.PADDING_PSS;
     }
 
-    public byte[] getPublicKey() {
-        return publicKey != null ? publicKey.clone() : null;
-    }
-
-    public byte[] getPrivateKey() {
-        return privateKey != null ? privateKey.clone() : null;
-    }
-
     private static long createContextForKeys(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
-        requirePublicExponent(publicKey, privateKey, publicExponent);
+        if (privateKey != null) {
+            requirePrivateKeyComponents(publicKey, privateKey, publicExponent);
+        } else if (publicKey != null) {
+            requirePublicKeyComponents(publicKey, publicExponent);
+        }
         return CryptoNative.rsaCreateContext();
     }
 
-    private static void requirePublicExponent(byte[] publicKey, byte[] privateKey, byte[] publicExponent) {
-        if ((publicKey != null || privateKey != null)
-                && (publicExponent == null || publicExponent.length == 0)) {
-            throw new IllegalArgumentException(PUBLIC_EXPONENT_REQUIRED);
+    private static void requirePublicKeyComponents(byte[] modulus, byte[] publicExponent) {
+        if (modulus == null || modulus.length == 0
+                || publicExponent == null || publicExponent.length == 0) {
+            throw new IllegalArgumentException("RSA public key components cannot be null or empty");
         }
     }
 
     private static void requireCrtKeyComponents(byte[] modulus, byte[] privateExponent,
             byte[] publicExponent, byte[] primeP, byte[] primeQ, byte[] primeExponentP,
             byte[] primeExponentQ, byte[] crtCoefficient) {
-        if (modulus == null || modulus.length == 0
-                || privateExponent == null || privateExponent.length == 0
-                || publicExponent == null || publicExponent.length == 0) {
-            throw new IllegalArgumentException("RSA key components cannot be null or empty");
-        }
+        requirePrivateKeyComponents(modulus, privateExponent, publicExponent);
         if (primeP == null || primeP.length == 0 || primeQ == null || primeQ.length == 0) {
             throw new IllegalArgumentException("RSA CRT primes cannot be null or empty");
         }
@@ -197,6 +177,15 @@ public class RSAImpl extends NativeResource {
                 || crtCoefficient == null || crtCoefficient.length == 0)) {
             throw new IllegalArgumentException(
                     "RSA CRT exponents and coefficient must be all provided or all omitted");
+        }
+    }
+
+    private static void requirePrivateKeyComponents(
+            byte[] modulus, byte[] privateExponent, byte[] publicExponent) {
+        if (modulus == null || modulus.length == 0
+                || privateExponent == null || privateExponent.length == 0
+                || publicExponent == null || publicExponent.length == 0) {
+            throw new IllegalArgumentException("RSA private key components cannot be null or empty");
         }
     }
 
