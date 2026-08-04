@@ -76,6 +76,23 @@ public class RSATest {
     }
 
     @Test
+    public void testRSAKeyPairGenerationWithLargePublicExponent() throws Exception {
+        BigInteger publicExponent = new BigInteger("1208925819614629174706189");
+        assertTrue("Test exponent must be larger than the previous native buffer",
+                publicExponent.bitLength() > 64);
+
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
+        keyGen.initialize(new RSAKeyGenParameterSpec(2048, publicExponent), new SecureRandom());
+        KeyPair keyPair = keyGen.generateKeyPair();
+
+        assertEquals(publicExponent, ((RSAPublicKey) keyPair.getPublic()).getPublicExponent());
+        byte[] data = "RSA large public exponent".getBytes(StandardCharsets.UTF_8);
+        byte[] signature = sign("SHA256withRSA", keyPair.getPrivate(), data);
+        assertTrue("RSA signature with a large public exponent should verify",
+                verify("SHA256withRSA", keyPair.getPublic(), data, signature));
+    }
+
+    @Test
     public void testRSAWithDifferentMessageLengths() throws Exception {
         KeyPair keyPair = generateKeyPair();
         String[] testMessages = {
