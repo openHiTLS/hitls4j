@@ -26,7 +26,7 @@ public class HMACImpl extends NativeResource {
         if (data == null) {
             throw new IllegalArgumentException("Input data cannot be null");
         }
-        if (offset < 0 || length < 0 || offset + length > data.length) {
+        if (offset < 0 || length < 0 || offset > data.length || length > data.length - offset) {
             throw new IllegalArgumentException("Invalid offset or length");
         }
         CryptoNative.hmacUpdate(nativeContext, data, offset, length);

@@ -52,7 +52,9 @@ public class DSASigner extends SignatureSpi {
             );
             
             // Set the parameters
-            newDsa.setParameters(params.getP().toByteArray(), params.getQ().toByteArray(), params.getG().toByteArray());
+            newDsa.setParameters(toUnsignedBytes(params.getP().toByteArray()),
+                    toUnsignedBytes(params.getQ().toByteArray()),
+                    toUnsignedBytes(params.getG().toByteArray()));
             
             // Convert public key to byte array
             byte[] y = dsaKey.getY().toByteArray();
@@ -94,7 +96,9 @@ public class DSASigner extends SignatureSpi {
             );
             
             // Set the parameters
-            newDsa.setParameters(params.getP().toByteArray(), params.getQ().toByteArray(), params.getG().toByteArray());
+            newDsa.setParameters(toUnsignedBytes(params.getP().toByteArray()),
+                    toUnsignedBytes(params.getQ().toByteArray()),
+                    toUnsignedBytes(params.getG().toByteArray()));
             
             // Convert private key to byte array
             x = dsaKey.getX().toByteArray();
@@ -117,6 +121,14 @@ public class DSASigner extends SignatureSpi {
                 Arrays.fill(x, (byte) 0);
             }
         }
+    }
+
+    // BigInteger.toByteArray() may prepend 0x00 when the high bit is set.
+    // Strip it so a 3072-bit DSA parameter remains 384 bytes for OpenHiTLS.
+    private static byte[] toUnsignedBytes(byte[] value) {
+        return value.length > 1 && value[0] == 0
+                ? Arrays.copyOfRange(value, 1, value.length)
+                : value;
     }
 
     @Override

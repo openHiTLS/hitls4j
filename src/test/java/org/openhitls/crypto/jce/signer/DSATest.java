@@ -9,10 +9,13 @@ import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.security.Provider;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
+import java.security.interfaces.DSAParams;
+import java.security.interfaces.DSAPublicKey;
 import java.security.spec.DSAParameterSpec;
 import java.nio.charset.StandardCharsets;
 import org.openhitls.crypto.jce.provider.HiTls4jProvider;
@@ -74,6 +77,22 @@ public class DSATest {
         boolean verified = verifier.verify(signature);
 
         assertTrue("Signature verification failed", verified);
+    }
+
+    @Test
+    public void testDSAKeyPairGenerationWithLargeStandardParameters() throws Exception {
+        for (int keySize : new int[]{2048, 3072}) {
+            DSAParameterSpec paramSpec = getReferenceParameters(keySize);
+            KeyPairGenerator keyGen = KeyPairGenerator.getInstance("DSA", HiTls4jProvider.PROVIDER_NAME);
+            keyGen.initialize(paramSpec, new SecureRandom());
+
+            KeyPair keyPair = keyGen.generateKeyPair();
+            byte[] data = ("large-standard-dsa-" + keySize).getBytes(StandardCharsets.UTF_8);
+            byte[] signature = sign("SHA256withDSA", keyPair.getPrivate(), data);
+
+            assertTrue("Signature verification failed for " + keySize + "-bit DSA",
+                    verify("SHA256withDSA", keyPair.getPublic(), data, signature));
+        }
     }
 
     @Test
@@ -318,6 +337,22 @@ public class DSATest {
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", HiTls4jProvider.PROVIDER_NAME);
         keyGen.initialize(2048);
         return keyGen.generateKeyPair();
+    }
+
+    private static DSAParameterSpec getReferenceParameters(int keySize) throws Exception {
+        Provider[] providers = Security.getProviders("KeyPairGenerator.DSA");
+        if (providers != null) {
+            for (Provider provider : providers) {
+                if (HiTls4jProvider.PROVIDER_NAME.equals(provider.getName())) {
+                    continue;
+                }
+                KeyPairGenerator keyGen = KeyPairGenerator.getInstance("DSA", provider);
+                keyGen.initialize(keySize, new SecureRandom());
+                DSAParams params = ((DSAPublicKey) keyGen.generateKeyPair().getPublic()).getParams();
+                return new DSAParameterSpec(params.getP(), params.getQ(), params.getG());
+            }
+        }
+        throw new IllegalStateException("No reference DSA provider is available");
     }
 
     private static byte[] sign(PrivateKey privateKey, byte[] data) throws Exception {

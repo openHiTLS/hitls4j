@@ -88,6 +88,26 @@ public class SLHDSATest extends BaseTest {
     }
 
     @Test
+    public void testShake128ParameterSetsAreDistinctFromSha2() throws Exception {
+        assertParameterSetsAreDistinct("SLH-DSA-SHAKE-128s", "SLH-DSA-SHA2-128s");
+        assertParameterSetsAreDistinct("SLH-DSA-SHAKE-128f", "SLH-DSA-SHA2-128f");
+    }
+
+    private static void assertParameterSetsAreDistinct(String signingParameterSet, String verificationParameterSet)
+            throws Exception {
+        KeyPair signingKeyPair = generateKeyPair(signingParameterSet);
+        byte[] data = "SLH-DSA parameter-set separation".getBytes(StandardCharsets.UTF_8);
+        byte[] signature = signMessage(signingKeyPair.getPrivate(), data);
+
+        KeyFactory keyFactory = KeyFactory.getInstance("SLH-DSA", HiTls4jProvider.PROVIDER_NAME);
+        PublicKey verificationKey = keyFactory.generatePublic(new SLHDSAPublicKeySpec(
+                signingKeyPair.getPublic().getEncoded(), new SLHDSAParameterSpec(verificationParameterSet)));
+
+        assertFalse(signingParameterSet + " signatures must not verify as " + verificationParameterSet,
+                verifyMessage(verificationKey, data, signature));
+    }
+
+    @Test
     public void testSignResetsBufferForReuse() throws Exception {
         KeyPair keyPair = generateKeyPair("SLH-DSA-SHA2-128s");
         byte[] previous = "previous-message".getBytes(StandardCharsets.UTF_8);

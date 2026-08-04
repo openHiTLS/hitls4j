@@ -72,8 +72,12 @@ public class SymmetricCipherImpl extends NativeResource {
         if (input == null) {
             throw new IllegalArgumentException("Input buffer cannot be null");
         }
-        if (inputOffset < 0 || inputLen < 0 || inputOffset + inputLen > input.length) {
+        if (inputOffset < 0 || inputLen < 0 || inputOffset > input.length ||
+                inputLen > input.length - inputOffset) {
             throw new IllegalArgumentException("Invalid input offset or length");
+        }
+        if (inputLen > Integer.MAX_VALUE - 16) {
+            throw new IllegalArgumentException("Input length is too large");
         }
         
         // Allocate output buffer for encrypted data

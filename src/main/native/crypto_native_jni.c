@@ -574,6 +574,16 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_hmacUpdate
         return;
     }
 
+    if (data == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Input data cannot be null");
+        return;
+    }
+    jsize dataLen = (*env)->GetArrayLength(env, data);
+    if (offset < 0 || length < 0 || offset > dataLen || length > dataLen - offset) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid offset or length");
+        return;
+    }
+
     jbyte *dataBytes = (*env)->GetByteArrayElements(env, data, NULL);
     if (dataBytes == NULL) {
         throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get data bytes");
@@ -1634,6 +1644,27 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCiph
         return;
     }
 
+    if (input == NULL || output == NULL || outLen == NULL) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Input, output, and output length cannot be null");
+        return;
+    }
+    jsize inputArrayLen = (*env)->GetArrayLength(env, input);
+    jsize outputArrayLen = (*env)->GetArrayLength(env, output);
+    jsize outLenArrayLen = (*env)->GetArrayLength(env, outLen);
+    if (inputOffset < 0 || inputLen < 0 || inputOffset > inputArrayLen ||
+            inputLen > inputArrayLen - inputOffset) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid input offset or length");
+        return;
+    }
+    if (outputOffset < 0 || outputOffset > outputArrayLen) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid output offset");
+        return;
+    }
+    if (outLenArrayLen < 1) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Output length array must contain one element");
+        return;
+    }
+
     jbyte *inputBytes = (*env)->GetByteArrayElements(env, input, NULL);
     if (inputBytes == NULL) {
         throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Failed to get input bytes");
@@ -1655,7 +1686,7 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCiph
         return;
     }
 
-    uint32_t actualOutLen = inputLen + 16; // Allow for padding
+    uint32_t actualOutLen = (uint32_t)(outputArrayLen - outputOffset);
     int result = CRYPT_EAL_CipherUpdate(ctx,
                                        (uint8_t *)(inputBytes + inputOffset),
                                        inputLen,
@@ -1794,12 +1825,22 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaGe
         return NULL;
     }
 
+    uint32_t keyBytes = CRYPT_EAL_PkeyGetKeyLen(ctx);
+    if (keyBytes == 0) {
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get DSA key size");
+        return NULL;
+    }
+
     // Get public key
     CRYPT_EAL_PkeyPub pubKey;
     memset(&pubKey, 0, sizeof(CRYPT_EAL_PkeyPub));
     pubKey.id = CRYPT_PKEY_DSA;
-    pubKey.key.dsaPub.data = malloc(128); // 1024 bits
-    pubKey.key.dsaPub.len = 128;
+    pubKey.key.dsaPub.data = malloc(keyBytes);
+    pubKey.key.dsaPub.len = keyBytes;
+    if (pubKey.key.dsaPub.data == NULL) {
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate DSA public key buffer");
+        return NULL;
+    }
 
     ret = CRYPT_EAL_PkeyGetPub(ctx, &pubKey);
     if (ret != CRYPT_SUCCESS) {
@@ -1812,8 +1853,13 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaGe
     CRYPT_EAL_PkeyPrv privKey;
     memset(&privKey, 0, sizeof(CRYPT_EAL_PkeyPrv));
     privKey.id = CRYPT_PKEY_DSA;
-    privKey.key.dsaPrv.data = malloc(20); // 160 bits
-    privKey.key.dsaPrv.len = 20;
+    privKey.key.dsaPrv.data = malloc(keyBytes);
+    privKey.key.dsaPrv.len = keyBytes;
+    if (privKey.key.dsaPrv.data == NULL) {
+        free(pubKey.key.dsaPub.data);
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate DSA private key buffer");
+        return NULL;
+    }
 
     ret = CRYPT_EAL_PkeyGetPrv(ctx, &privKey);
     if (ret != CRYPT_SUCCESS) {
@@ -1871,12 +1917,17 @@ JNIEXPORT jbyteArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_dsaSign
         return NULL;
     }
 
-    // Allocate buffer for signature
-    uint8_t *signBuf = malloc(256); // Large enough for DSA signature
-    uint32_t signLen = 256;
+    // Allocate the exact maximum signature size for the configured parameters.
+    uint32_t signLen = CRYPT_EAL_PkeyGetSignLen(ctx);
+    if (signLen == 0) {
+        (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
+        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to get DSA signature length");
+        return NULL;
+    }
+    uint8_t *signBuf = malloc(signLen);
     if (signBuf == NULL) {
         (*env)->ReleaseByteArrayElements(env, data, inputData, JNI_ABORT);
-        throwException(env, ILLEGAL_STATE_EXCEPTION, "Failed to allocate memory for signature");
+        throwException(env, OUT_OF_MEMORY_ERROR, "Failed to allocate DSA signature buffer");
         return NULL;
     }
 
@@ -2208,7 +2259,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
         return NULL;
     }
     pubKey.key.rsaPub.n = malloc(keyBytes);
-    pubKey.key.rsaPub.e = malloc(8);   // Large enough for public exponent
+    pubKey.key.rsaPub.e = malloc(keyBytes);
     if (pubKey.key.rsaPub.n == NULL || pubKey.key.rsaPub.e == NULL) {
         if (pubKey.key.rsaPub.n) free(pubKey.key.rsaPub.n);
         if (pubKey.key.rsaPub.e) free(pubKey.key.rsaPub.e);
@@ -2216,7 +2267,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_openhitls_crypto_core_CryptoNative_rsaGe
         return NULL;
     }
     pubKey.key.rsaPub.nLen = keyBytes;
-    pubKey.key.rsaPub.eLen = 8;
+    pubKey.key.rsaPub.eLen = keyBytes;
 
     ret = CRYPT_EAL_PkeyGetPub(ctx, &pubKey);
     if (ret != CRYPT_SUCCESS) {
@@ -3004,8 +3055,14 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCiph
         return;
     }
 
-    if (len <= 0) {
-        return; // Nothing to do for zero or negative length
+    jsize aadLen = (*env)->GetArrayLength(env, aad);
+    if (offset < 0 || len < 0 || offset > aadLen || len > aadLen - offset) {
+        throwException(env, ILLEGAL_ARGUMENT_EXCEPTION, "Invalid AAD offset or length");
+        return;
+    }
+
+    if (len == 0) {
+        return;
     }
 
     jbyte* aadBytes = (*env)->GetByteArrayElements(env, aad, NULL);
@@ -3077,7 +3134,7 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_symmetricCiph
     
     // Use cipher context and control command to get the tag
     CRYPT_EAL_CipherCtx* ctx = (CRYPT_EAL_CipherCtx*)contextPtr;
-    
+
     // Call with tag length directly as the last parameter
     int ret = CRYPT_EAL_CipherCtrl(ctx, 
                                  CRYPT_CTRL_GET_TAG, 
@@ -4127,9 +4184,9 @@ static int getSlhDsaParamId(const char *parameterSet) {
     } else if (strcmp(parameterSet, "SLH-DSA-SHA2-256f") == 0) {
         return CRYPT_SLH_DSA_SHA2_256F;
     } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-128s") == 0) {
-        return CRYPT_SLH_DSA_SHA2_128S;
+        return CRYPT_SLH_DSA_SHAKE_128S;
     } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-128f") == 0) {
-        return CRYPT_SLH_DSA_SHA2_128F;
+        return CRYPT_SLH_DSA_SHAKE_128F;
     } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-192s") == 0) {
         return CRYPT_SLH_DSA_SHAKE_192S;
     } else if (strcmp(parameterSet, "SLH-DSA-SHAKE-192f") == 0) {
