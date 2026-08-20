@@ -19,7 +19,6 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
-import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.security.spec.ECGenParameterSpec;
@@ -203,14 +202,14 @@ public class SLHDSATest extends BaseTest {
         // sign data with deterministic signature
         byte[] data = "Hello, World!".getBytes();
         Signature signer = Signature.getInstance("SHAKE128withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        signer.setParameter(new SLHDSASignatureParameterSpec(true, false, null, null));
+        signer.setParameter(new SLHDSASignatureParameterSpec(true, false, null));
         signer.initSign(keyPair.getPrivate());
         signer.update(data);
         byte[] signature = signer.sign();
 
         // verify
         Signature verifier = Signature.getInstance("SHAKE128withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        verifier.setParameter(new SLHDSASignatureParameterSpec(true, false, null, null));
+        verifier.setParameter(new SLHDSASignatureParameterSpec(true, false, null));
         verifier.initVerify(keyPair.getPublic());
         verifier.update(data);
         boolean result = verifier.verify(signature);
@@ -227,14 +226,14 @@ public class SLHDSATest extends BaseTest {
         // sign data with preHashed data
         byte[] data = "Hello, World!".getBytes();
         Signature signer = Signature.getInstance("SHAKE128withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        signer.setParameter(new SLHDSASignatureParameterSpec(false, true, null, null));
+        signer.setParameter(new SLHDSASignatureParameterSpec(false, true, null));
         signer.initSign(keyPair.getPrivate());
         signer.update(data);
         byte[] signature = signer.sign();
 
         // verify
         Signature verifier = Signature.getInstance("SHAKE128withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        verifier.setParameter(new SLHDSASignatureParameterSpec(false, true, null, null));
+        verifier.setParameter(new SLHDSASignatureParameterSpec(false, true, null));
         verifier.initVerify(keyPair.getPublic());
         verifier.update(data);
         boolean result = verifier.verify(signature);
@@ -252,42 +251,14 @@ public class SLHDSATest extends BaseTest {
         byte[] data = "Hello, World!".getBytes();
         byte[] context = "this is context".getBytes();
         Signature signer = Signature.getInstance("SHAKE256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        signer.setParameter(new SLHDSASignatureParameterSpec(false, false, context, null));
+        signer.setParameter(new SLHDSASignatureParameterSpec(false, false, context));
         signer.initSign(keyPair.getPrivate());
         signer.update(data);
         byte[] signature = signer.sign();
 
         // verify
         Signature verifier = Signature.getInstance("SHAKE256withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        verifier.setParameter(new SLHDSASignatureParameterSpec(false, false, context, null));
-        verifier.initVerify(keyPair.getPublic());
-        verifier.update(data);
-        boolean result = verifier.verify(signature);
-        assertTrue(result);
-    }
-
-    @Test
-    public void testSignatureAndVerificationWithAdditionalRandomness() throws Exception {
-        // generate keyPair
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("SLH-DSA", HiTls4jProvider.PROVIDER_NAME);
-        keyGen.initialize(new SLHDSAParameterSpec("SLH-DSA-SHA2-128s"));
-        KeyPair keyPair = keyGen.generateKeyPair();
-
-        // sign data with additional randomness
-        byte[] data = "Hello, World!".getBytes();
-        SecureRandom secureRandom = new SecureRandom();
-        byte[] additionalRandomness = new byte[16];
-        secureRandom.nextBytes(additionalRandomness);
-
-        Signature signer = Signature.getInstance("SHA512withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        signer.setParameter(new SLHDSASignatureParameterSpec(false, false, null, additionalRandomness));
-        signer.initSign(keyPair.getPrivate());
-        signer.update(data);
-        byte[] signature = signer.sign();
-
-        // verify
-        Signature verifier = Signature.getInstance("SHA512withSLHDSA", HiTls4jProvider.PROVIDER_NAME);
-        verifier.setParameter(new SLHDSASignatureParameterSpec(false, false, null, additionalRandomness));
+        verifier.setParameter(new SLHDSASignatureParameterSpec(false, false, context));
         verifier.initVerify(keyPair.getPublic());
         verifier.update(data);
         boolean result = verifier.verify(signature);

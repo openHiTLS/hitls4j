@@ -122,8 +122,6 @@ public class CryptoNative {
     public static native void slhdsaSetDeterministic(long nativeRef, boolean deterministic);
     public static native void slhdsaSetPreHash(long nativeRef, boolean preHash);
     public static native void slhdsaSetCxt(long nativeRef, byte[] context);
-    public static native void slhdsaSetAdditionalRandomness(long nativeRef, byte[] additionalRandomness);
-
     // FrodoKEM native methods
     public static native long frodoKemCreateContext(String parameterSet);
     public static native byte[][] frodoKemGenerateKeyPair(long nativeRef, String parameterSet);
