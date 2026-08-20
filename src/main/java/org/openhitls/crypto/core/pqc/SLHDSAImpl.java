@@ -97,11 +97,13 @@ public class SLHDSAImpl extends NativeResource {
         if (privateKey == null) {
             throw new IllegalStateException("Private key not initialized");
         }
+        if (signParams == null) {
+            throw new IllegalArgumentException("SLHDSA signature parameters cannot be null");
+        }
         try {
             CryptoNative.slhdsaSetDeterministic(nativeContext, signParams.isDeterministic());
             CryptoNative.slhdsaSetPreHash(nativeContext, signParams.isPreHash());
             CryptoNative.slhdsaSetCxt(nativeContext, signParams.getContext());
-            CryptoNative.slhdsaSetAdditionalRandomness(nativeContext, signParams.getAdditionalRandomness());
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to set SLHDSA signatureParameters:" + e.getMessage(), e);
         }
@@ -115,11 +117,13 @@ public class SLHDSAImpl extends NativeResource {
         if (publicKey == null) {
             throw new IllegalStateException("Public key not initialized");
         }
+        if (signParams == null) {
+            throw new IllegalArgumentException("SLHDSA signature parameters cannot be null");
+        }
         try {
             CryptoNative.slhdsaSetDeterministic(nativeContext, signParams.isDeterministic());
             CryptoNative.slhdsaSetPreHash(nativeContext, signParams.isPreHash());
             CryptoNative.slhdsaSetCxt(nativeContext, signParams.getContext());
-            CryptoNative.slhdsaSetAdditionalRandomness(nativeContext, signParams.getAdditionalRandomness());
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to set SLHDSA signatureParameters:" + e.getMessage(), e);
         }

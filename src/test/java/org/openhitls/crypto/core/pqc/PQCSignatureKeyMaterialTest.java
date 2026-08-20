@@ -2,8 +2,8 @@ package org.openhitls.crypto.core.pqc;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 
 import org.junit.Test;
@@ -42,7 +42,7 @@ public class PQCSignatureKeyMaterialTest extends BaseTest {
     public void testSLHDSAImplCopiesPrivateKeyInput() {
         byte[] publicKey = null;
         byte[] privateKey = null;
-        SLHDSASignatureParameterSpec params = new SLHDSASignatureParameterSpec(false, false, null, null);
+        SLHDSASignatureParameterSpec params = new SLHDSASignatureParameterSpec(false, false, null);
         byte[] message = "SLHDSA private key copy".getBytes(StandardCharsets.UTF_8);
 
         try (SLHDSAImpl source = new SLHDSAImpl("SLH-DSA-SHA2-128s")) {
@@ -63,7 +63,7 @@ public class PQCSignatureKeyMaterialTest extends BaseTest {
     }
 
     @Test
-    public void testSLHDSASetKeysClearsPreviousPrivateKey() throws Exception {
+    public void testSLHDSASetKeysRejectsMismatchedPublicKeyReplacement() {
         byte[] firstPrivateKey = null;
         byte[] replacementPublicKey = null;
 
@@ -73,11 +73,19 @@ public class PQCSignatureKeyMaterialTest extends BaseTest {
             replacementPublicKey = replacement.getPublicKey();
 
             try (SLHDSAImpl target = new SLHDSAImpl("SLH-DSA-SHA2-128s", CryptoConstants.HASH_ALG_SHA256, null, firstPrivateKey)) {
-                byte[] previousPrivateKey = getPrivateKey(target, SLHDSAImpl.class);
+                byte[] message = "unchanged SLHDSA context".getBytes(StandardCharsets.UTF_8);
+                SLHDSASignatureParameterSpec params =
+                        new SLHDSASignatureParameterSpec(false, false, null);
 
-                target.setKeys(replacementPublicKey, null);
+                try {
+                    target.setKeys(replacementPublicKey, null);
+                    fail("Expected mismatched public-key replacement to fail");
+                } catch (IllegalStateException expected) {
+                    assertTrue(expected.getMessage().contains("Failed to set SLHDSA public key"));
+                }
 
-                assertArrayZeroed(previousPrivateKey);
+                assertArrayEquals(firstPrivateKey, target.getPrivateKey());
+                assertTrue(first.verifySignature(message, target.signData(message, params), params));
             }
         } finally {
             SensitiveDataUtil.clear(firstPrivateKey);
@@ -98,30 +106,15 @@ public class PQCSignatureKeyMaterialTest extends BaseTest {
     }
 
     @Test
-    public void testSLHDSASignatureParameterSpecCopiesMutableInputs() {
+    public void testSLHDSASignatureParameterSpecCopiesContext() {
         byte[] context = "slhdsa-context".getBytes(StandardCharsets.UTF_8);
-        byte[] additionalRandomness = "randomness".getBytes(StandardCharsets.UTF_8);
         SLHDSASignatureParameterSpec params =
-                new SLHDSASignatureParameterSpec(false, false, context, additionalRandomness);
+                new SLHDSASignatureParameterSpec(false, false, context);
 
         context[0] ^= 0x7f;
-        additionalRandomness[0] ^= 0x7f;
         byte[] returnedContext = params.getContext();
-        byte[] returnedRandomness = params.getAdditionalRandomness();
         returnedContext[0] ^= 0x7f;
-        returnedRandomness[0] ^= 0x7f;
 
         assertArrayEquals("slhdsa-context".getBytes(StandardCharsets.UTF_8), params.getContext());
-        assertArrayEquals("randomness".getBytes(StandardCharsets.UTF_8), params.getAdditionalRandomness());
-    }
-
-    private static byte[] getPrivateKey(Object target, Class<?> type) throws Exception {
-        Field field = type.getDeclaredField("privateKey");
-        field.setAccessible(true);
-        return (byte[]) field.get(target);
-    }
-
-    private static void assertArrayZeroed(byte[] value) {
-        assertArrayEquals(new byte[value.length], value);
     }
 }

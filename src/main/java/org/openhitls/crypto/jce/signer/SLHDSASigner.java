@@ -98,7 +98,7 @@ public class SLHDSASigner extends SignatureSpi{
             SLHDSAParameterSpec params = ((SLHDSAPrivateKeyImpl)privateKey).getParams();
             String parameterSetName = params.getName();
             if (signParams == null) {
-                signParams = new SLHDSASignatureParameterSpec(false, false, null, null);
+                signParams = new SLHDSASignatureParameterSpec(false, false, null);
             }
             byte[] privateKeyEncoded = null;
             SLHDSAImpl newImpl = null;
@@ -130,7 +130,7 @@ public class SLHDSASigner extends SignatureSpi{
             String parameterSetName = params.getName();
             // Ensure signParams is not null, set default values
             if (signParams == null) {
-                signParams = new SLHDSASignatureParameterSpec(false, false, null, null);
+                signParams = new SLHDSASignatureParameterSpec(false, false, null);
             }
             SLHDSAImpl newImpl = null;
             try {
@@ -155,7 +155,7 @@ public class SLHDSASigner extends SignatureSpi{
 
     protected void engineSetParameter(AlgorithmParameterSpec params) throws InvalidAlgorithmParameterException {
         if (params == null) {
-            signParams = new SLHDSASignatureParameterSpec(false, false, null, null);
+            signParams = new SLHDSASignatureParameterSpec(false, false, null);
         } else if (params instanceof SLHDSASignatureParameterSpec) {
             signParams = (SLHDSASignatureParameterSpec)params;
         } else {

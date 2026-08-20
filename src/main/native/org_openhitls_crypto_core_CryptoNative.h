@@ -705,14 +705,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetCxt
 
 /*
  * Class:     org_openhitls_crypto_core_CryptoNative
- * Method:    slhdsaSetAdditionalRandomness
- * Signature: (J[B)V
- */
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetAdditionalRandomness
-  (JNIEnv *, jclass, jlong, jbyteArray);
-
-/*
- * Class:     org_openhitls_crypto_core_CryptoNative
  * Method:    frodoKemCreateContext
  * Signature: (Ljava/lang/String;)J
  */

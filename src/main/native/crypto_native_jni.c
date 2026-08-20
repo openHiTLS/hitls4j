@@ -4583,28 +4583,6 @@ JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetCxt
     return;
 }
 
-JNIEXPORT void JNICALL Java_org_openhitls_crypto_core_CryptoNative_slhdsaSetAdditionalRandomness
-  (JNIEnv *env, jclass cls, jlong nativeRef, jbyteArray additionalRandomness) {
-    if (additionalRandomness == NULL) {
-        return;
-    }
-
-    CRYPT_EAL_PkeyCtx *pkey = (CRYPT_EAL_PkeyCtx *)nativeRef;
-
-    // get additionalRandomness for native methods
-    JByteArrayRef dataRef = {0};
-    if (!getByteArrayRef(env, additionalRandomness, &dataRef, "Failed to get additionalRandomness data", true)) {
-        return;
-    }
-
-    int ret = CRYPT_EAL_PkeyCtrl(pkey, CRYPT_CTRL_SET_SLH_DSA_ADDRAND, (uint8_t *)dataRef.bytes, dataRef.len);
-    releaseByteArrayRef(env, &dataRef, true);
-    if (ret != CRYPT_SUCCESS) {
-        throwExceptionWithError(env, ILLEGAL_STATE_EXCEPTION, "Failed to set SLHDSA additionalRandomness", ret);
-    }
-    return;
-}
-
 // ==================== FrodoKEM ====================
 
 static int getFrodoKemParamId(const char *parameterSet) {
